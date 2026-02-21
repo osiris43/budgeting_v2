@@ -111,11 +111,40 @@ def imports_list():
     return render_template("imports.html", imports=imports)
 
 
+@bp.get("/categories")
+def categories_list():
+    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
+    return render_template("categories.html", categories=categories)
+
+
+@bp.post("/categories/create")
+def create_category():
+    name = (request.form.get("name") or "").strip()
+    parent_id_s = (request.form.get("parent_id") or "").strip()
+
+    if not name:
+        abort(400)
+
+    parent_id = int(parent_id_s) if parent_id_s else None
+    parent = db.session.get(Category, parent_id) if parent_id else None
+
+    existing = db.session.execute(db.select(Category).where(Category.name == name)).scalar_one_or_none()
+    if existing:
+        return redirect("/categories")
+
+    cat = Category(name=name, parent_id=parent.id if parent else None)
+    db.session.add(cat)
+    db.session.commit()
+    return redirect("/categories")
+
+
 @bp.get("/imports/<int:import_id>")
 def import_detail(import_id: int):
     imp = db.session.get(StatementImport, import_id)
     if not imp:
         abort(404)
+
+    confirm_delete = (request.args.get("delete") or "").strip() == "1"
 
     txs = (
         db.session.execute(
@@ -128,7 +157,29 @@ def import_detail(import_id: int):
     )
 
     categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
-    return render_template("import_detail.html", imp=imp, txs=txs, categories=categories)
+    return render_template(
+        "import_detail.html",
+        imp=imp,
+        txs=txs,
+        categories=categories,
+        confirm_delete=confirm_delete,
+    )
+
+
+@bp.post("/imports/<int:import_id>/delete")
+def delete_import(import_id: int):
+    imp = db.session.get(StatementImport, import_id)
+    if not imp:
+        abort(404)
+
+    confirmed = (request.form.get("confirmed") or "").strip().lower() == "yes"
+    if not confirmed:
+        return redirect(f"/imports/{import_id}?delete=1")
+
+    db.session.execute(db.delete(Transaction).where(Transaction.statement_import_id == import_id))
+    db.session.delete(imp)
+    db.session.commit()
+    return redirect("/imports")
 
 
 @bp.post("/imports/<int:import_id>/confirm")

@@ -4,7 +4,7 @@ from typing import Optional
 
 from .. import db
 from ..models import Category, MerchantRule, Transaction
-from .normalization import extract_merchant, normalize_description
+from .normalization import extract_detail, extract_merchant, normalize_description
 from .ollama_client import categorize_with_ollama
 
 
@@ -99,8 +99,9 @@ def categorize_transactions(
     created_categories = 0
 
     for tx in txs:
-        desc_clean = normalize_description(tx.description_raw)
-        merch = extract_merchant(desc_clean)
+        raw_clean = normalize_description(tx.description_raw)
+        merch = extract_merchant(raw_clean)
+        detail = extract_detail(raw_clean, merch)
 
         allowed_for_tx = list(allowed)
 
@@ -113,7 +114,7 @@ def categorize_transactions(
             # Credits are rarely "Groceries" etc; but we keep allowed wide for now.
             pass
 
-        chosen: Optional[Category] = apply_rules(merchant=merch, description_clean=desc_clean)
+        chosen: Optional[Category] = apply_rules(merchant=merch, description_clean=detail)
         source = None
 
         if chosen:
@@ -123,7 +124,7 @@ def categorize_transactions(
             model_cat = categorize_with_ollama(
                 base_url=base_url,
                 model=model,
-                description=desc_clean,
+                description=detail,
                 merchant=merch,
                 amount_cents=tx.amount_cents,
                 bank_category_raw=tx.bank_category_raw,
@@ -167,7 +168,7 @@ def categorize_transactions(
         categorized += 1
 
         if not dry_run:
-            tx.description_clean = desc_clean
+            tx.description_clean = detail
             tx.merchant = merch
             tx.category_id = chosen.id
             tx.category_source = source or "unknown"

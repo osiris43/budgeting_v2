@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -180,6 +182,136 @@ def register_cli(app: Flask) -> None:
                 ]
             )
         )
+
+    @app.cli.command("sams-pdf-to-csv")
+    @click.option("--pdf-path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+    @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
+    def sams_pdf_to_csv(pdf_path: Path, out_csv_path: Path) -> None:
+        """Extract transactions from a Sam's Club / Synchrony PDF statement into a CSV.
+
+        The PDF statement contains multi-line transaction descriptions (e.g. ", UNLEAD") that are
+        often missing from the downloaded CSV export.
+
+        Output CSV columns:
+        - date
+        - reference_number
+        - description
+        - amount
+        """
+
+        try:
+            import pdfplumber  # type: ignore
+        except Exception as e:
+            raise click.ClickException(
+                "Missing dependency 'pdfplumber'. Install requirements.txt (or `pip install pdfplumber`) and try again."
+            ) from e
+
+        @dataclass
+        class _Tx:
+            posted_date: str
+            reference_number: str
+            description: str
+            amount: str
+
+        date_re = re.compile(r"^\s*(\d{2}/\d{2})\s+")
+        amount_re = re.compile(r"(-?\$[0-9,]+\.[0-9]{2})\s*$")
+
+        def _is_header_line(line: str) -> bool:
+            s = line.strip().lower()
+            return (
+                not s
+                or s.startswith("transaction detail")
+                or s.startswith("date")
+                or s.startswith("payments")
+                or s.startswith("purchases and other debits")
+                or s.startswith("(continued on next page")
+                or s.startswith("page ")
+            )
+
+        def _parse_year_from_pdf(text: str) -> Optional[int]:
+            m = re.search(r"\b(20\d{2})\b", text)
+            if not m:
+                return None
+            try:
+                return int(m.group(1))
+            except ValueError:
+                return None
+
+        txs: list[_Tx] = []
+        current: Optional[_Tx] = None
+        statement_year: Optional[int] = None
+
+        with pdfplumber.open(str(pdf_path)) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                if statement_year is None:
+                    statement_year = _parse_year_from_pdf(text)
+
+                for raw_line in text.splitlines():
+                    line = raw_line.rstrip()
+                    if _is_header_line(line):
+                        continue
+
+                    m_date = date_re.match(line)
+                    m_amt = amount_re.search(line)
+
+                    if m_date and m_amt:
+                        if current is not None:
+                            txs.append(current)
+
+                        mmdd = m_date.group(1)
+                        amt = m_amt.group(1)
+
+                        middle = line[m_date.end() : m_amt.start()].strip()
+                        middle = re.sub(r"\s+", " ", middle)
+
+                        parts = middle.split(" ", 1)
+                        if len(parts) == 2:
+                            reference_number, desc_part = parts[0].strip(), parts[1].strip()
+                        else:
+                            reference_number, desc_part = "", middle
+
+                        if statement_year is None:
+                            posted_date = mmdd
+                        else:
+                            month_s, day_s = mmdd.split("/")
+                            posted_date = f"{statement_year:04d}-{int(month_s):02d}-{int(day_s):02d}"
+
+                        current = _Tx(
+                            posted_date=posted_date,
+                            reference_number=reference_number,
+                            description=desc_part,
+                            amount=amt.replace("$", ""),
+                        )
+                        continue
+
+                    if current is not None:
+                        cont = line.strip()
+                        if cont:
+                            cont = re.sub(r"\s+", " ", cont)
+                            current.description = f"{current.description} {cont}".strip()
+
+        if current is not None:
+            txs.append(current)
+
+        if not txs:
+            raise click.ClickException("No transactions found in PDF. If this is a scanned PDF, OCR support may be needed.")
+
+        out_csv_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_csv_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["date", "reference_number", "description", "amount"])
+            writer.writeheader()
+            for tx in txs:
+                writer.writerow(
+                    {
+                        "date": tx.posted_date,
+                        "reference_number": tx.reference_number,
+                        "description": tx.description,
+                        "amount": tx.amount,
+                    }
+                )
+
+        click.echo(f"Wrote {len(txs)} transactions to {out_csv_path}")
 
 
 def _parse_amount_to_cents(amount: Optional[str], debit: Optional[str], credit: Optional[str]) -> int:

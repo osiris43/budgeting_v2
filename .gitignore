@@ -6,3 +6,5 @@ instance/
 *.sqlite
 *.db
 .DS_Store
+
+data/

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Categories | Budgeting{% endblock %}
+
+{% block content %}
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div class="text-sm text-slate-400">Manage categories</div>
+        <h1 class="mt-1 text-2xl font-semibold tracking-tight">Categories</h1>
+      </div>
+    </div>
+
+    <div class="mt-6 grid gap-4 lg:grid-cols-3">
+      <form class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 lg:col-span-1" method="post" action="/categories/create">
+        <div class="text-sm font-medium">Add category</div>
+        <div class="mt-3 grid gap-3">
+          <div>
+            <label class="block text-xs uppercase tracking-wide text-slate-400">Name</label>
+            <input name="name" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100" />
+          </div>
+          <div>
+            <label class="block text-xs uppercase tracking-wide text-slate-400">Parent (optional)</label>
+            <select name="parent_id" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100">
+              <option value="">(none)</option>
+              {% for c in categories %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="pt-1">
+            <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-indigo-500 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-400">Create</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="lg:col-span-2">
+        <div class="rounded-xl border border-slate-800 bg-slate-950/20">
+          <div class="overflow-x-auto">
+            <table class="min-w-max w-full text-left text-sm">
+              <thead class="bg-slate-950/50 text-xs uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th class="px-4 py-3">Category</th>
+                  <th class="px-4 py-3">Parent</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                {% for c in categories %}
+                  <tr class="hover:bg-slate-950/40">
+                    <td class="px-4 py-3 text-slate-200">{{ c.name }}</td>
+                    <td class="px-4 py-3 text-slate-300">{{ c.parent.name if c.parent else "" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
