@@ -123,12 +123,24 @@ flask categorize --create-rules
 flask categorize --auto-create-categories
 ```
 
-### Sam's Club / Synchrony PDF statement to CSV
+### PDF statement to CSV
 
-This converts a statement PDF into a CSV that contains the fuller multi-line descriptions from the statement.
+Convert a statement PDF into a normalized CSV that is better suited for importing and categorization.
 
 ```bash
-flask sams-pdf-to-csv --pdf-path data/sams_statement.pdf --out-csv-path data/sams_statement.csv
+flask pdf-to-csv --pdf-path data/statement.pdf --out-csv-path data/statement.csv
+```
+
+Auto-detection supports:
+
+- Synchrony / Sam's Club statements
+- Barclays statements
+
+If auto-detection fails, you can force a parser:
+
+```bash
+flask pdf-to-csv --format sams --pdf-path data/sams_statement.pdf --out-csv-path data/sams_statement.csv
+flask pdf-to-csv --format barclays --pdf-path barclays_0226.pdf --out-csv-path data/barclays_0226.csv
 ```
 
 The output CSV contains:
@@ -137,3 +149,5 @@ The output CSV contains:
 - `reference_number`
 - `description`
 - `amount`
+
+`flask sams-pdf-to-csv` is kept as a backwards-compatible alias for the Sam's/Synchrony parser.

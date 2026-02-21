@@ -183,29 +183,39 @@ def register_cli(app: Flask) -> None:
             )
         )
 
-    @app.cli.command("sams-pdf-to-csv")
-    @click.option("--pdf-path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
-    @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
-    def sams_pdf_to_csv(pdf_path: Path, out_csv_path: Path) -> None:
-        """Extract transactions from a Sam's Club / Synchrony PDF statement into a CSV.
+    def _write_pdf_csv(*, out_csv_path: Path, rows: list[dict]) -> None:
+        if not rows:
+            raise click.ClickException("No transactions found in PDF. If this is a scanned PDF, OCR support may be needed.")
 
-        The PDF statement contains multi-line transaction descriptions (e.g. ", UNLEAD") that are
-        often missing from the downloaded CSV export.
+        out_csv_path.parent.mkdir(parents=True, exist_ok=True)
+        fieldnames = ["date", "reference_number", "description", "amount"]
+        with out_csv_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({k: row.get(k, "") for k in fieldnames})
 
-        Output CSV columns:
-        - date
-        - reference_number
-        - description
-        - amount
-        """
+        click.echo(f"Wrote {len(rows)} transactions to {out_csv_path}")
 
+    def _parse_year_from_text(text: str) -> Optional[int]:
+        m = re.search(r"\b(20\d{2})\b", text)
+        if not m:
+            return None
         try:
-            import pdfplumber  # type: ignore
-        except Exception as e:
-            raise click.ClickException(
-                "Missing dependency 'pdfplumber'. Install requirements.txt (or `pip install pdfplumber`) and try again."
-            ) from e
+            return int(m.group(1))
+        except ValueError:
+            return None
 
+    def _parse_period_end_from_text(text: str) -> Optional[tuple[int, int]]:
+        m = re.search(r"Statement Period\s+(\d{2})/(\d{2})/(\d{2})\s*-\s*(\d{2})/(\d{2})/(\d{2})", text)
+        if not m:
+            return None
+        end_mm = int(m.group(4))
+        end_yy = int(m.group(6))
+        end_year = 2000 + end_yy
+        return end_year, end_mm
+
+    def _parse_synchrony_sams(*, pdf, first_page_text: str) -> list[dict]:
         @dataclass
         class _Tx:
             posted_date: str
@@ -228,90 +238,222 @@ def register_cli(app: Flask) -> None:
                 or s.startswith("page ")
             )
 
-        def _parse_year_from_pdf(text: str) -> Optional[int]:
-            m = re.search(r"\b(20\d{2})\b", text)
-            if not m:
-                return None
-            try:
-                return int(m.group(1))
-            except ValueError:
-                return None
-
         txs: list[_Tx] = []
         current: Optional[_Tx] = None
-        statement_year: Optional[int] = None
+        statement_year: Optional[int] = _parse_year_from_text(first_page_text)
 
-        with pdfplumber.open(str(pdf_path)) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                if statement_year is None:
-                    statement_year = _parse_year_from_pdf(text)
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            if statement_year is None:
+                statement_year = _parse_year_from_text(text)
 
-                for raw_line in text.splitlines():
-                    line = raw_line.rstrip()
-                    if _is_header_line(line):
-                        continue
+            for raw_line in text.splitlines():
+                line = raw_line.rstrip()
+                if _is_header_line(line):
+                    continue
 
-                    m_date = date_re.match(line)
-                    m_amt = amount_re.search(line)
+                m_date = date_re.match(line)
+                m_amt = amount_re.search(line)
 
-                    if m_date and m_amt:
-                        if current is not None:
-                            txs.append(current)
-
-                        mmdd = m_date.group(1)
-                        amt = m_amt.group(1)
-
-                        middle = line[m_date.end() : m_amt.start()].strip()
-                        middle = re.sub(r"\s+", " ", middle)
-
-                        parts = middle.split(" ", 1)
-                        if len(parts) == 2:
-                            reference_number, desc_part = parts[0].strip(), parts[1].strip()
-                        else:
-                            reference_number, desc_part = "", middle
-
-                        if statement_year is None:
-                            posted_date = mmdd
-                        else:
-                            month_s, day_s = mmdd.split("/")
-                            posted_date = f"{statement_year:04d}-{int(month_s):02d}-{int(day_s):02d}"
-
-                        current = _Tx(
-                            posted_date=posted_date,
-                            reference_number=reference_number,
-                            description=desc_part,
-                            amount=amt.replace("$", ""),
-                        )
-                        continue
-
+                if m_date and m_amt:
                     if current is not None:
-                        cont = line.strip()
-                        if cont:
-                            cont = re.sub(r"\s+", " ", cont)
-                            current.description = f"{current.description} {cont}".strip()
+                        txs.append(current)
+
+                    mmdd = m_date.group(1)
+                    amt = m_amt.group(1)
+
+                    middle = line[m_date.end() : m_amt.start()].strip()
+                    middle = re.sub(r"\s+", " ", middle)
+
+                    parts = middle.split(" ", 1)
+                    if len(parts) == 2:
+                        reference_number, desc_part = parts[0].strip(), parts[1].strip()
+                    else:
+                        reference_number, desc_part = "", middle
+
+                    if statement_year is None:
+                        posted_date = mmdd
+                    else:
+                        month_s, day_s = mmdd.split("/")
+                        posted_date = f"{statement_year:04d}-{int(month_s):02d}-{int(day_s):02d}"
+
+                    current = _Tx(
+                        posted_date=posted_date,
+                        reference_number=reference_number,
+                        description=desc_part,
+                        amount=amt.replace("$", ""),
+                    )
+                    continue
+
+                if current is not None:
+                    cont = line.strip()
+                    if cont:
+                        cont_low = cont.lower()
+                        if cont_low.startswith("total fees") or cont_low.startswith("total interest"):
+                            continue
+                        cont = re.sub(r"\s+", " ", cont)
+                        current.description = f"{current.description} {cont}".strip()
 
         if current is not None:
             txs.append(current)
 
-        if not txs:
-            raise click.ClickException("No transactions found in PDF. If this is a scanned PDF, OCR support may be needed.")
+        return [
+            {
+                "date": t.posted_date,
+                "reference_number": t.reference_number,
+                "description": t.description,
+                "amount": t.amount,
+            }
+            for t in txs
+        ]
 
-        out_csv_path.parent.mkdir(parents=True, exist_ok=True)
-        with out_csv_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["date", "reference_number", "description", "amount"])
-            writer.writeheader()
-            for tx in txs:
-                writer.writerow(
+    def _parse_barclays(*, pdf, first_page_text: str) -> list[dict]:
+        period_end = _parse_period_end_from_text(first_page_text)
+
+        tx_line_re = re.compile(
+            r"^\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+"
+            r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+"
+            r"(.+?)\s+(N/A|[0-9,]+)\s+(-?\$[0-9,]+\.[0-9]{2})\s*$",
+            re.IGNORECASE,
+        )
+
+        month_map = {
+            "JAN": 1,
+            "FEB": 2,
+            "MAR": 3,
+            "APR": 4,
+            "MAY": 5,
+            "JUN": 6,
+            "JUL": 7,
+            "AUG": 8,
+            "SEP": 9,
+            "OCT": 10,
+            "NOV": 11,
+            "DEC": 12,
+        }
+
+        def _to_iso(mm_str: str, dd_str: str) -> str:
+            mm = month_map.get(mm_str.upper()[:3])
+            try:
+                dd = int(dd_str)
+            except ValueError:
+                return f"{mm_str} {dd_str}".strip()
+            if not mm:
+                return f"{mm_str} {dd_str}".strip()
+
+            if period_end is None:
+                year = datetime.utcnow().year
+            else:
+                end_year, end_month = period_end
+                year = end_year - 1 if mm > end_month else end_year
+            return f"{year:04d}-{mm:02d}-{dd:02d}"
+
+        rows: list[dict] = []
+        in_transactions = False
+
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            for raw_line in text.splitlines():
+                line = raw_line.rstrip()
+                s = line.strip()
+                s_low = s.lower()
+                if not s:
+                    continue
+
+                if s_low == "transactions":
+                    in_transactions = True
+                    continue
+                if s_low.startswith("fees and interest"):
+                    in_transactions = False
+                    continue
+                if not in_transactions:
+                    continue
+                if s_low.startswith("transaction date"):
+                    continue
+                if s_low.startswith("total "):
+                    continue
+                if s_low.startswith("purchase activity"):
+                    continue
+
+                m = tx_line_re.match(line)
+                if not m:
+                    continue
+
+                post_mm, post_dd = m.group(3), m.group(4)
+                desc = m.group(5).strip()
+                amt = m.group(7)
+
+                rows.append(
                     {
-                        "date": tx.posted_date,
-                        "reference_number": tx.reference_number,
-                        "description": tx.description,
-                        "amount": tx.amount,
+                        "date": _to_iso(post_mm, post_dd),
+                        "reference_number": "",
+                        "description": desc,
+                        "amount": amt.replace("$", ""),
                     }
                 )
 
-        click.echo(f"Wrote {len(txs)} transactions to {out_csv_path}")
+        return rows
+
+    def _detect_pdf_kind(first_page_text: str) -> str:
+        t = (first_page_text or "").lower()
+        if "samsclubcredit.com" in t or "sam's club" in t or "sam\u2019s club" in t or "synchrony" in t:
+            return "sams"
+        if "barclays" in t or "wyndham rewards" in t:
+            return "barclays"
+        return "unknown"
+
+    def _pdf_to_csv(*, pdf_path: Path, out_csv_path: Path, fmt: str) -> None:
+        try:
+            import pdfplumber  # type: ignore
+        except Exception as e:
+            raise click.ClickException(
+                "Missing dependency 'pdfplumber'. Install requirements.txt (or `pip install pdfplumber`) and try again."
+            ) from e
+
+        with pdfplumber.open(str(pdf_path)) as pdf:
+            first_page_text = (pdf.pages[0].extract_text() or "") if pdf.pages else ""
+
+            chosen = fmt
+            if chosen == "auto":
+                chosen = _detect_pdf_kind(first_page_text)
+
+            if chosen == "sams":
+                rows = _parse_synchrony_sams(pdf=pdf, first_page_text=first_page_text)
+            elif chosen == "barclays":
+                rows = _parse_barclays(pdf=pdf, first_page_text=first_page_text)
+            else:
+                kind = _detect_pdf_kind(first_page_text)
+                raise click.ClickException(
+                    f"Unsupported PDF (detected={kind}). Use --format sams or --format barclays, or add a new parser."
+                )
+
+        _write_pdf_csv(out_csv_path=out_csv_path, rows=rows)
+
+    @app.cli.command("pdf-to-csv")
+    @click.option("--pdf-path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+    @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
+    @click.option("--format", "fmt", type=click.Choice(["auto", "sams", "barclays"], case_sensitive=False), default="auto", show_default=True)
+    def pdf_to_csv(pdf_path: Path, out_csv_path: Path, fmt: str) -> None:
+        """Convert a statement PDF into a normalized CSV for importing.
+
+        Supports:
+        - Synchrony / Sam's Club statements
+        - Barclays statements
+
+        Output CSV columns:
+        - date
+        - reference_number
+        - description
+        - amount
+        """
+
+        _pdf_to_csv(pdf_path=pdf_path, out_csv_path=out_csv_path, fmt=fmt.lower())
+
+    @app.cli.command("sams-pdf-to-csv")
+    @click.option("--pdf-path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+    @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
+    def sams_pdf_to_csv(pdf_path: Path, out_csv_path: Path) -> None:
+        _pdf_to_csv(pdf_path=pdf_path, out_csv_path=out_csv_path, fmt="sams")
 
 
 def _parse_amount_to_cents(amount: Optional[str], debit: Optional[str], credit: Optional[str]) -> int:
