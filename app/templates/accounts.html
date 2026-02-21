@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Accounts | Budgeting{% endblock %}
+
+{% block content %}
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-semibold tracking-tight">Accounts</h1>
+    </div>
+
+    {% if not accounts %}
+      <p class="mt-4 text-slate-300">No accounts yet.</p>
+    {% else %}
+      <div class="mt-6 overflow-hidden rounded-xl border border-slate-800">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-950/50 text-xs uppercase tracking-wide text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Institution</th>
+              <th class="px-4 py-3">Name</th>
+              <th class="px-4 py-3">Type</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            {% for a in accounts %}
+              <tr class="hover:bg-slate-950/40">
+                <td class="px-4 py-3 text-slate-200">{{ a.institution }}</td>
+                <td class="px-4 py-3 text-slate-200">{{ a.name }}</td>
+                <td class="px-4 py-3 text-slate-300">{{ a.account_type }}</td>
+                <td class="px-4 py-3 text-right">
+                  <a class="text-indigo-300 hover:text-indigo-200" href="/accounts/{{ a.id }}">View</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

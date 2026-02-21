@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Home | Budgeting{% endblock %}
+
+{% block content %}
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+    <h1 class="text-2xl font-semibold tracking-tight">Welcome</h1>
+    <p class="mt-2 text-slate-300">
+      This is your local budgeting app. Next: import statements and categorize transactions.
+    </p>
+
+    <div class="mt-6 grid gap-4 sm:grid-cols-3">
+      <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-400">This month</div>
+        <div class="mt-1 text-lg font-medium">${{ "%.2f" | format((month_spend_cents or 0) / 100) }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-400">Uncategorized</div>
+        <div class="mt-1 text-lg font-medium">{{ uncategorized_count or 0 }}</div>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-400">Accounts</div>
+        <div class="mt-1 text-lg font-medium">{{ accounts_count or 0 }}</div>
+      </div>
+    </div>
+
+    <div class="mt-8 flex flex-wrap gap-3">
+      <a
+        class="inline-flex items-center justify-center rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400"
+        href="#"
+      >Import CSV (next)</a>
+      <a
+        class="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-950/40 px-4 py-2 text-sm font-medium text-slate-100 hover:border-slate-500"
+        href="/accounts"
+      >View accounts (next)</a>
+    </div>
+  </section>
+{% endblock %}
