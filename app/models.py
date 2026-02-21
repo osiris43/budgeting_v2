@@ -30,6 +30,8 @@ class StatementImport(db.Model):
     account_id = db.Column(db.Integer, db.ForeignKey("account.id"), nullable=False)
     filename = db.Column(db.String(500), nullable=False)
     imported_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    confirmed_at = db.Column(db.DateTime, nullable=True)
 
     account = db.relationship("Account", back_populates="imports")
     transactions = db.relationship("Transaction", back_populates="statement_import", lazy=True)

@@ -1,9 +1,11 @@
 from datetime import date
 
+from datetime import datetime
+
 from flask import Blueprint, abort, redirect, render_template, request
 
 from . import db
-from .models import Account, Category, MerchantRule, Transaction
+from .models import Account, Category, MerchantRule, StatementImport, Transaction
 
 bp = Blueprint("main", __name__)
 
@@ -85,23 +87,64 @@ def account_detail(account_id: int):
         )
     ).scalar_one()
 
-    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
-
     return render_template(
         "account_detail.html",
         account=account,
         recent=recent,
-        categories=categories,
         total_spend_cents=total_spend_cents,
         total_credits_cents=total_credits_cents,
         uncategorized_count=uncategorized_count,
     )
 
 
-@bp.post("/accounts/<int:account_id>/transactions/<int:tx_id>/set-category")
-def set_transaction_category(account_id: int, tx_id: int):
+@bp.get("/imports")
+def imports_list():
+    imports = (
+        db.session.execute(
+            db.select(StatementImport).order_by(StatementImport.imported_at.desc(), StatementImport.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return render_template("imports.html", imports=imports)
+
+
+@bp.get("/imports/<int:import_id>")
+def import_detail(import_id: int):
+    imp = db.session.get(StatementImport, import_id)
+    if not imp:
+        abort(404)
+
+    txs = (
+        db.session.execute(
+            db.select(Transaction)
+            .where(Transaction.statement_import_id == import_id)
+            .order_by(Transaction.posted_date.desc(), Transaction.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
+    return render_template("import_detail.html", imp=imp, txs=txs, categories=categories)
+
+
+@bp.post("/imports/<int:import_id>/confirm")
+def confirm_import(import_id: int):
+    imp = db.session.get(StatementImport, import_id)
+    if not imp:
+        abort(404)
+
+    imp.status = "confirmed"
+    imp.confirmed_at = datetime.utcnow()
+    db.session.commit()
+    return redirect(f"/imports/{import_id}")
+
+
+@bp.post("/imports/<int:import_id>/transactions/<int:tx_id>/set-category")
+def set_import_transaction_category(import_id: int, tx_id: int):
     tx = db.session.get(Transaction, tx_id)
-    if not tx or tx.account_id != account_id:
+    if not tx or tx.statement_import_id != import_id:
         abort(404)
 
     category_id_s = request.form.get("category_id")
@@ -127,11 +170,11 @@ def set_transaction_category(account_id: int, tx_id: int):
             db.session.add(MerchantRule(pattern=tx.merchant, category_id=category.id))
 
     db.session.commit()
-    return redirect(f"/accounts/{account_id}")
+    return redirect(f"/imports/{import_id}")
 
 
-@bp.post("/accounts/<int:account_id>/categories/create")
-def create_category(account_id: int):
+@bp.post("/imports/<int:import_id>/categories/create")
+def create_category_for_import(import_id: int):
     name = (request.form.get("name") or "").strip()
     parent_id_s = (request.form.get("parent_id") or "").strip()
 
@@ -143,9 +186,9 @@ def create_category(account_id: int):
 
     existing = db.session.execute(db.select(Category).where(Category.name == name)).scalar_one_or_none()
     if existing:
-        return redirect(f"/accounts/{account_id}")
+        return redirect(f"/imports/{import_id}")
 
     cat = Category(name=name, parent_id=parent.id if parent else None)
     db.session.add(cat)
     db.session.commit()
-    return redirect(f"/accounts/{account_id}")
+    return redirect(f"/imports/{import_id}")

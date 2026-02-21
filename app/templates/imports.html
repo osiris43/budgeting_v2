@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Imports | Budgeting{% endblock %}
+
+{% block content %}
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+    <h1 class="text-2xl font-semibold tracking-tight">Imports</h1>
+
+    {% if not imports %}
+      <p class="mt-4 text-slate-300">No imports yet.</p>
+    {% else %}
+      <div class="mt-6 overflow-hidden rounded-xl border border-slate-800">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-950/50 text-xs uppercase tracking-wide text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Imported</th>
+              <th class="px-4 py-3">Account</th>
+              <th class="px-4 py-3">File</th>
+              <th class="px-4 py-3">Status</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            {% for imp in imports %}
+              <tr class="hover:bg-slate-950/40">
+                <td class="px-4 py-3 text-slate-300">{{ imp.imported_at }}</td>
+                <td class="px-4 py-3 text-slate-200">{{ imp.account.institution }} · {{ imp.account.name }}</td>
+                <td class="px-4 py-3 text-slate-200">{{ imp.filename }}</td>
+                <td class="px-4 py-3">
+                  {% if imp.status == 'confirmed' %}
+                    <span class="rounded-md border border-emerald-800 bg-emerald-950/40 px-2 py-1 text-xs text-emerald-300">confirmed</span>
+                  {% else %}
+                    <span class="rounded-md border border-amber-800 bg-amber-950/40 px-2 py-1 text-xs text-amber-300">pending</span>
+                  {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <a class="text-indigo-300 hover:text-indigo-200" href="/imports/{{ imp.id }}">Review</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
