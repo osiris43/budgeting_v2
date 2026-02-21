@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Spend Analysis | Budgeting{% endblock %}
+
+{% block content %}
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Spend over time</h1>
+        <p class="mt-1 text-sm text-slate-300">Expenses only (positive amounts).</p>
+      </div>
+
+      <form class="flex flex-wrap items-end gap-3" method="get" action="/analysis/spend">
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-slate-400">Account</label>
+          <select name="account_id" class="mt-1 rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100">
+            <option value="" {% if not account_id %}selected{% endif %}>(all)</option>
+            {% for a in accounts %}
+              <option value="{{ a.id }}" {% if account_id == a.id %}selected{% endif %}>{{ a.institution }} · {{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-slate-400">Range (days)</label>
+          <input name="days" value="{{ days }}" class="mt-1 w-28 rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100" />
+        </div>
+
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-slate-400">Granularity</label>
+          <select name="granularity" class="mt-1 rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100">
+            <option value="month" {% if granularity == 'month' %}selected{% endif %}>Month</option>
+            <option value="day" {% if granularity == 'day' %}selected{% endif %}>Day</option>
+          </select>
+        </div>
+
+        <div class="pb-0.5">
+          <button type="submit" class="rounded-lg bg-indigo-500 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-400">Update</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="mt-8 grid gap-4 lg:grid-cols-2">
+      <div class="rounded-xl border border-slate-800 bg-slate-950/20 p-4">
+        <div id="chart" class="w-full"></div>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-950/20 p-4">
+        <div id="chart-cats" class="w-full"></div>
+      </div>
+    </div>
+  </section>
+
+  <script id="fig-json" type="application/json">{{ fig_json | safe }}</script>
+  <script id="fig-cats-json" type="application/json">{{ fig_cats_json | safe }}</script>
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <script>
+    const fig = JSON.parse(document.getElementById('fig-json').textContent);
+    const figCats = JSON.parse(document.getElementById('fig-cats-json').textContent);
+    Plotly.newPlot('chart', fig.data, fig.layout, {responsive: true, displayModeBar: false});
+    Plotly.newPlot('chart-cats', figCats.data, figCats.layout, {responsive: true, displayModeBar: false});
+  </script>
+{% endblock %}
