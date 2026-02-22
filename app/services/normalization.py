@@ -5,6 +5,8 @@ _space_re = re.compile(r"\s+")
 _trailing_ref_re = re.compile(r"\s*\*[0-9]{3,}\s*$")
 _leading_ref_re = re.compile(r"^\s*[0-9A-Z]{10,}\s+")
 _sams_re = re.compile(r"^SAM'?S\s+CLUB\b")
+_anbtx_prefix_re = re.compile(r"^(EXTERNAL\s+(DEPOSIT|WITHDRAWAL)\b\s*)")
+_check_prefix_re = re.compile(r"^(OVER\s+COUNTER\s+CHECK|CHECK\s*-\s*ITEM\s+PROCESSING|CHECK)\b\s*", re.IGNORECASE)
 
 
 def normalize_description(description: str) -> str:
@@ -19,6 +21,13 @@ def extract_merchant(description_clean: str) -> str:
 
     # Remove leading statement reference numbers like: "8521333D701012T4L SAM'S CLUB ..."
     s = _leading_ref_re.sub("", s)
+
+    # ANBTX export descriptions often start with unhelpful boilerplate prefixes.
+    s = _anbtx_prefix_re.sub("", s).strip()
+
+    # Checks are generally not categorizable; keep details in description but make merchant consistent.
+    if _check_prefix_re.match(s):
+        return "CHECK"
 
     if _sams_re.match(s):
         return "SAM'S CLUB"

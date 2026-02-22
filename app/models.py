@@ -8,6 +8,7 @@ class Account(db.Model):
     name = db.Column(db.String(200), nullable=False)
     institution = db.Column(db.String(200), nullable=False)
     account_type = db.Column(db.String(50), nullable=False)
+    invert_csv_amounts = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     transactions = db.relationship("Transaction", back_populates="account", lazy=True)

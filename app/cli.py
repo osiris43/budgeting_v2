@@ -56,8 +56,14 @@ def register_cli(app: Flask) -> None:
     @click.option("--name", required=True)
     @click.option("--institution", required=True)
     @click.option("--type", "account_type", required=True)
-    def create_account(name: str, institution: str, account_type: str) -> None:
-        acct = Account(name=name, institution=institution, account_type=account_type)
+    @click.option("--invert-csv-amounts", is_flag=True, default=False)
+    def create_account(name: str, institution: str, account_type: str, invert_csv_amounts: bool) -> None:
+        acct = Account(
+            name=name,
+            institution=institution,
+            account_type=account_type,
+            invert_csv_amounts=invert_csv_amounts,
+        )
         db.session.add(acct)
         db.session.commit()
         click.echo(f"Created account id={acct.id}")
@@ -90,6 +96,24 @@ def register_cli(app: Flask) -> None:
 
             fields = {name.lower().strip(): name for name in reader.fieldnames}
 
+            looks_like_anbtx_export = all(
+                k in fields
+                for k in [
+                    "date",
+                    "description",
+                    "comments",
+                    "check number",
+                    "amount",
+                    "balance",
+                ]
+            )
+
+            if looks_like_anbtx_export and not getattr(acct, "invert_csv_amounts", False):
+                click.echo(
+                    "Warning: CSV looks like an ANBTX export (deposits positive / withdrawals negative). "
+                    "Consider setting account.invert_csv_amounts (create-account --invert-csv-amounts) to map into app convention."
+                )
+
             def get(row: dict, *candidates: str) -> str | None:
                 for c in candidates:
                     key = fields.get(c)
@@ -103,18 +127,32 @@ def register_cli(app: Flask) -> None:
             for row in reader:
                 date_s = get(row, "posted date", "transaction date", "date")
                 desc = get(row, "description", "details", "merchant", "name")
+                comments = get(row, "comments", "memo")
+                check_no = get(row, "check number", "check #", "check")
                 card_no = get(row, "card no.", "card no", "card")
                 bank_category_raw = get(row, "category")
 
-                if not date_s or not desc:
+                if not date_s:
                     skipped += 1
                     continue
+
+                if not desc:
+                    if check_no:
+                        desc = f"Check {check_no}"
+                    else:
+                        skipped += 1
+                        continue
+
+                if comments:
+                    desc = re.sub(r"\s+", " ", f"{desc} {comments}").strip()
 
                 amt_s = get(row, "amount")
                 debit_s = get(row, "debit")
                 credit_s = get(row, "credit")
 
                 amount_cents = _parse_amount_to_cents(amt_s, debit_s, credit_s)
+                if getattr(acct, "invert_csv_amounts", False):
+                    amount_cents = -amount_cents
                 posted_date = _parse_date(date_s)
 
                 fingerprint = hashlib.sha1(
@@ -424,7 +462,7 @@ def register_cli(app: Flask) -> None:
             else:
                 kind = _detect_pdf_kind(first_page_text)
                 raise click.ClickException(
-                    f"Unsupported PDF (detected={kind}). Use --format sams or --format barclays, or add a new parser."
+                    f"Unsupported PDF (detected={kind}). Use --format sams or --format barclays (or add a new parser)."
                 )
 
         _write_pdf_csv(out_csv_path=out_csv_path, rows=rows)
@@ -432,7 +470,13 @@ def register_cli(app: Flask) -> None:
     @app.cli.command("pdf-to-csv")
     @click.option("--pdf-path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
     @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
-    @click.option("--format", "fmt", type=click.Choice(["auto", "sams", "barclays"], case_sensitive=False), default="auto", show_default=True)
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["auto", "sams", "barclays"], case_sensitive=False),
+        default="auto",
+        show_default=True,
+    )
     def pdf_to_csv(pdf_path: Path, out_csv_path: Path, fmt: str) -> None:
         """Convert a statement PDF into a normalized CSV for importing.
 
@@ -454,7 +498,6 @@ def register_cli(app: Flask) -> None:
     @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
     def sams_pdf_to_csv(pdf_path: Path, out_csv_path: Path) -> None:
         _pdf_to_csv(pdf_path=pdf_path, out_csv_path=out_csv_path, fmt="sams")
-
 
 def _parse_amount_to_cents(amount: Optional[str], debit: Optional[str], credit: Optional[str]) -> int:
     if amount is not None:
