@@ -34,13 +34,31 @@
           </select>
         </div>
 
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-slate-400">Include categories</label>
+          <select name="include_category_id" multiple size="4" class="mt-1 min-w-56 rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100">
+            {% for c in categories %}
+              <option value="{{ c.id }}" {% if c.id in include_category_ids %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-slate-400">Exclude categories</label>
+          <select name="exclude_category_id" multiple size="4" class="mt-1 min-w-56 rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100">
+            {% for c in categories %}
+              <option value="{{ c.id }}" {% if c.id in exclude_category_ids %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
         <div class="pb-0.5">
           <button type="submit" class="rounded-lg bg-indigo-500 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-400">Update</button>
         </div>
       </form>
     </div>
 
-    <div class="mt-8 grid gap-4 lg:grid-cols-2">
+    <div class="mt-8 grid gap-4">
       <div class="rounded-xl border border-slate-800 bg-slate-950/20 p-4">
         <div id="chart" class="w-full"></div>
       </div>

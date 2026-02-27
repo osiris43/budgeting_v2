@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Transaction {{ tx.id }} | Budgeting{% endblock %}
+
+{% block content %}
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div class="text-sm text-slate-400">Transaction #{{ tx.id }} · Account #{{ tx.account_id }}</div>
+        <h1 class="mt-1 text-2xl font-semibold tracking-tight">Edit transaction</h1>
+      </div>
+      <div class="text-right">
+        {% if next_url %}
+          <a class="text-sm text-indigo-300 hover:text-indigo-200" href="{{ next_url }}">Back</a>
+        {% else %}
+          <a class="text-sm text-indigo-300 hover:text-indigo-200" href="/accounts/{{ tx.account_id }}/transactions">Back</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <form class="mt-6 grid gap-4" method="post" action="/transactions/{{ tx.id }}/edit">
+      <input type="hidden" name="next_url" value="{{ next_url }}" />
+
+      <div class="grid gap-2">
+        <label class="block text-xs uppercase tracking-wide text-slate-400">Posted date</label>
+        <div class="text-sm text-slate-200">{{ tx.posted_date }}</div>
+      </div>
+
+      <div class="grid gap-2">
+        <label class="block text-xs uppercase tracking-wide text-slate-400">Amount</label>
+        {% set amt = (tx.amount_cents or 0) / 100 %}
+        <div class="text-sm font-medium {% if tx.amount_cents > 0 %}text-slate-100{% else %}text-emerald-300{% endif %}">
+          {% if tx.amount_cents > 0 %}
+            ${{ "%.2f" | format(amt) }}
+          {% else %}
+            -${{ "%.2f" | format(amt * -1) }}
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="grid gap-2">
+        <label class="block text-xs uppercase tracking-wide text-slate-400">Description (raw)</label>
+        <textarea name="description_raw" rows="3" class="w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100">{{ tx.description_raw }}</textarea>
+      </div>
+
+      <div class="grid gap-2">
+        <label class="block text-xs uppercase tracking-wide text-slate-400">Category</label>
+        <select name="category_id" class="w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100">
+          <option value="" {% if not tx.category_id %}selected{% endif %}>(none)</option>
+          {% for c in categories %}
+            {% set label = (c.parent.name ~ ": " ~ c.name) if c.parent else c.name %}
+            <option value="{{ c.id }}" {% if tx.category_id == c.id %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="pt-2 flex items-center gap-3">
+        <button type="submit" class="rounded-lg bg-indigo-500 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-400">Save</button>
+        {% if next_url %}
+          <a class="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-500" href="{{ next_url }}">Cancel</a>
+        {% else %}
+          <a class="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-500" href="/accounts/{{ tx.account_id }}/transactions">Cancel</a>
+        {% endif %}
+      </div>
+    </form>
+
+    <div class="mt-6 text-xs text-slate-400">
+      Saving will recompute merchant + cleaned description from the raw description.
+    </div>
+  </section>
+{% endblock %}

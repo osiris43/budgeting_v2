@@ -30,6 +30,9 @@
     </div>
 
     <h2 class="mt-10 text-lg font-semibold tracking-tight">Recent transactions</h2>
+    <div class="mt-1 text-sm">
+      <a class="text-indigo-300 hover:text-indigo-200" href="/accounts/{{ account.id }}/transactions">View all transactions</a>
+    </div>
 
     {% if not recent %}
       <p class="mt-3 text-slate-300">No transactions yet.</p>
@@ -50,13 +53,29 @@
             </thead>
             <tbody class="divide-y divide-slate-800">
               {% for t in recent %}
-                <tr class="hover:bg-slate-950/40">
+                <tr class="hover:bg-slate-950/40" x-data="{ categoryId: '{{ t.category_id or '' }}', categorySource: '{{ t.category_source }}', saving: false, error: '' }">
                   <td class="px-4 py-3 text-slate-300">{{ t.posted_date }}</td>
                   <td class="px-4 py-3 text-slate-200">{{ t.description_clean or t.description_raw }}</td>
                   <td class="px-4 py-3 text-slate-300">{{ t.merchant or "" }}</td>
                   <td class="px-4 py-3 text-slate-300">{{ t.bank_category_raw or "" }}</td>
-                  <td class="px-4 py-3 text-slate-200">{{ t.category.name if t.category else "" }}</td>
-                  <td class="px-4 py-3 text-slate-300">{{ t.category_source }}</td>
+                  <td class="px-4 py-2">
+                    <select
+                      class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-sm text-slate-100"
+                      x-model="categoryId"
+                      @change="saving=true; error=''; fetch('/transactions/{{ t.id }}/set-category', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({category_id: categoryId})}).then(r => r.ok ? r.json() : Promise.reject()).then((data) => { categorySource = data.category_source || categorySource; saving=false; }).catch(() => { saving=false; error='Error'; })"
+                    >
+                      <option value="" {% if not t.category_id %}selected{% endif %}>(none)</option>
+                      {% for c in categories %}
+                        {% set label = (c.parent.name ~ ": " ~ c.name) if c.parent else c.name %}
+                        <option value="{{ c.id }}" {% if t.category_id == c.id %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <div class="mt-1 text-xs" :class="error ? 'text-rose-300' : 'text-slate-500'">
+                      <span x-show="saving">Saving…</span>
+                      <span x-show="error" x-text="error"></span>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-slate-300" x-text="categorySource"></td>
                   {% set amt = (t.amount_cents or 0) / 100 %}
                   <td class="px-4 py-3 text-right font-medium {% if t.amount_cents > 0 %}text-slate-100{% else %}text-emerald-300{% endif %}">
                     {% if t.amount_cents > 0 %}

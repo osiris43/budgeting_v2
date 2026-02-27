@@ -123,6 +123,11 @@ def register_cli(app: Flask) -> None:
 
             imported = 0
             skipped = 0
+            skipped_missing_date = 0
+            skipped_missing_desc = 0
+            skipped_missing_amount = 0
+            skipped_duplicate = 0
+            sample_duplicates: list[str] = []
 
             for row in reader:
                 date_s = get(row, "posted date", "transaction date", "date")
@@ -133,6 +138,7 @@ def register_cli(app: Flask) -> None:
                 bank_category_raw = get(row, "category")
 
                 if not date_s:
+                    skipped_missing_date += 1
                     skipped += 1
                     continue
 
@@ -140,6 +146,7 @@ def register_cli(app: Flask) -> None:
                     if check_no:
                         desc = f"Check {check_no}"
                     else:
+                        skipped_missing_desc += 1
                         skipped += 1
                         continue
 
@@ -149,6 +156,11 @@ def register_cli(app: Flask) -> None:
                 amt_s = get(row, "amount")
                 debit_s = get(row, "debit")
                 credit_s = get(row, "credit")
+
+                if amt_s is None and debit_s is None and credit_s is None:
+                    skipped_missing_amount += 1
+                    skipped += 1
+                    continue
 
                 amount_cents = _parse_amount_to_cents(amt_s, debit_s, credit_s)
                 if getattr(acct, "invert_csv_amounts", False):
@@ -163,6 +175,11 @@ def register_cli(app: Flask) -> None:
                     db.select(Transaction).where(Transaction.account_id == acct.id, Transaction.fingerprint == fingerprint)
                 ).scalar_one_or_none()
                 if exists:
+                    skipped_duplicate += 1
+                    if len(sample_duplicates) < 5:
+                        sample_duplicates.append(
+                            f"{posted_date.isoformat()} {amount_cents/100:.2f} {desc}"
+                        )
                     skipped += 1
                     continue
 
@@ -182,7 +199,21 @@ def register_cli(app: Flask) -> None:
                 imported += 1
 
         db.session.commit()
-        click.echo(f"Imported {imported} transactions; skipped {skipped}")
+        click.echo(
+            " ".join(
+                [
+                    f"Imported {imported} transactions; skipped {skipped}",
+                    f"(duplicates={skipped_duplicate}",
+                    f"missing_date={skipped_missing_date}",
+                    f"missing_desc={skipped_missing_desc}",
+                    f"missing_amount={skipped_missing_amount})",
+                ]
+            )
+        )
+        if sample_duplicates:
+            click.echo("Sample duplicates:")
+            for s in sample_duplicates:
+                click.echo(f"- {s}")
 
     @app.cli.command("categorize")
     @click.option("--account-id", type=int, required=False)
@@ -253,6 +284,21 @@ def register_cli(app: Flask) -> None:
         end_year = 2000 + end_yy
         return end_year, end_mm
 
+    def _parse_closing_date_from_text(text: str) -> Optional[tuple[int, int]]:
+        # Synchrony statements often include a closing/ending date like:
+        # "Closing Date 01/20/2026" or "Statement Closing Date: 01/20/26"
+        m = re.search(
+            r"(closing date|statement closing date|statement ending)\s*[:#-]?\s*(\d{2})/(\d{2})/(\d{2,4})",
+            text,
+            re.IGNORECASE,
+        )
+        if not m:
+            return None
+        end_mm = int(m.group(2))
+        yy = int(m.group(4))
+        end_year = yy if yy >= 1000 else 2000 + yy
+        return end_year, end_mm
+
     def _parse_synchrony_sams(*, pdf, first_page_text: str) -> list[dict]:
         @dataclass
         class _Tx:
@@ -278,6 +324,9 @@ def register_cli(app: Flask) -> None:
 
         txs: list[_Tx] = []
         current: Optional[_Tx] = None
+        closing = _parse_closing_date_from_text(first_page_text)
+        if closing is None:
+            closing = _parse_period_end_from_text(first_page_text)
         statement_year: Optional[int] = _parse_year_from_text(first_page_text)
 
         for page in pdf.pages:
@@ -313,7 +362,13 @@ def register_cli(app: Flask) -> None:
                         posted_date = mmdd
                     else:
                         month_s, day_s = mmdd.split("/")
-                        posted_date = f"{statement_year:04d}-{int(month_s):02d}-{int(day_s):02d}"
+                        mm_i = int(month_s)
+                        dd_i = int(day_s)
+                        year = statement_year
+                        if closing is not None:
+                            end_year, end_month = closing
+                            year = end_year - 1 if mm_i > end_month else end_year
+                        posted_date = f"{year:04d}-{mm_i:02d}-{dd_i:02d}"
 
                     current = _Tx(
                         posted_date=posted_date,

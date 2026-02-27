@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 
 from . import db
 from .models import Account, Category, MerchantRule, StatementImport, Transaction
+from .services.normalization import extract_detail, extract_merchant, normalize_description
 
 bp = Blueprint("main", __name__)
 
@@ -89,6 +90,8 @@ def account_detail(account_id: int):
         )
     ).scalar_one()
 
+    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
+
     return render_template(
         "account_detail.html",
         account=account,
@@ -96,7 +99,146 @@ def account_detail(account_id: int):
         total_spend_cents=total_spend_cents,
         total_credits_cents=total_credits_cents,
         uncategorized_count=uncategorized_count,
+        categories=categories,
     )
+
+
+@bp.get("/accounts/<int:account_id>/transactions")
+def account_transactions(account_id: int):
+    account = db.session.get(Account, account_id)
+    if not account:
+        abort(404)
+
+    sort = (request.args.get("sort") or "date").strip().lower()
+    direction = (request.args.get("dir") or "desc").strip().lower()
+
+    if direction not in ("asc", "desc"):
+        direction = "desc"
+
+    order_col = Transaction.posted_date
+    if sort == "amount":
+        order_col = Transaction.amount_cents
+    elif sort == "merchant":
+        order_col = Transaction.merchant
+    elif sort == "description":
+        order_col = Transaction.description_raw
+    elif sort == "category":
+        # Category sort handled with outer join.
+        order_col = Category.name
+
+    stmt = db.select(Transaction).where(Transaction.account_id == account_id)
+
+    if sort == "category":
+        stmt = stmt.join(Category, Transaction.category_id == Category.id, isouter=True)
+
+    if direction == "asc":
+        stmt = stmt.order_by(order_col.asc(), Transaction.id.asc())
+    else:
+        stmt = stmt.order_by(order_col.desc(), Transaction.id.desc())
+
+    txs = db.session.execute(stmt.limit(1000)).scalars().all()
+    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
+
+    return render_template(
+        "account_transactions.html",
+        account=account,
+        txs=txs,
+        categories=categories,
+        sort=sort,
+        direction=direction,
+    )
+
+
+@bp.get("/transactions/<int:tx_id>/edit")
+def transaction_edit(tx_id: int):
+    tx = db.session.get(Transaction, tx_id)
+    if not tx:
+        abort(404)
+
+    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
+    next_url = (request.args.get("next") or "").strip()
+    return render_template("transaction_edit.html", tx=tx, categories=categories, next_url=next_url)
+
+
+@bp.post("/transactions/<int:tx_id>/edit")
+def transaction_edit_post(tx_id: int):
+    tx = db.session.get(Transaction, tx_id)
+    if not tx:
+        abort(404)
+
+    description_raw = (request.form.get("description_raw") or "").strip()
+    category_id_s = (request.form.get("category_id") or "").strip()
+    next_url = (request.form.get("next_url") or "").strip()
+
+    if not description_raw:
+        abort(400)
+
+    if category_id_s:
+        try:
+            category_id = int(category_id_s)
+        except ValueError:
+            abort(400)
+        category = db.session.get(Category, category_id)
+        if not category:
+            abort(400)
+        tx.category_id = category.id
+        tx.category_source = "manual"
+    else:
+        tx.category_id = None
+        tx.category_source = "unknown"
+
+    tx.description_raw = description_raw
+    desc_clean = normalize_description(description_raw)
+    merchant = extract_merchant(desc_clean)
+    tx.merchant = merchant or None
+    tx.description_clean = extract_detail(desc_clean, merchant) if merchant else desc_clean
+
+    db.session.commit()
+
+    if next_url:
+        return redirect(next_url)
+    return redirect(f"/accounts/{tx.account_id}/transactions")
+
+
+@bp.post("/transactions/<int:tx_id>/set-category")
+def set_transaction_category(tx_id: int):
+    tx = db.session.get(Transaction, tx_id)
+    if not tx:
+        abort(404)
+
+    category_id_s = (request.form.get("category_id") or "").strip()
+    if not category_id_s:
+        tx.category_id = None
+        tx.category_source = "unknown"
+        db.session.commit()
+        return {
+            "ok": True,
+            "tx_id": tx.id,
+            "category_id": None,
+            "category_name": "",
+            "category_source": tx.category_source,
+        }
+
+    try:
+        category_id = int(category_id_s)
+    except ValueError:
+        abort(400)
+
+    category = db.session.get(Category, category_id)
+    if not category:
+        abort(400)
+
+    tx.category_id = category.id
+    tx.category_source = "manual"
+    db.session.commit()
+
+    return {
+        "ok": True,
+        "tx_id": tx.id,
+        "category_id": tx.category_id,
+        "category_name": category.name,
+        "category_source": tx.category_source,
+    }
 
 
 @bp.get("/imports")
@@ -252,6 +394,8 @@ def analysis_spend():
     granularity = (request.args.get("granularity") or "month").lower()
     account_id_s = (request.args.get("account_id") or "").strip()
     days_s = (request.args.get("days") or "365").strip()
+    include_category_ids_s = request.args.getlist("include_category_id")
+    exclude_category_ids_s = request.args.getlist("exclude_category_id")
 
     try:
         days = int(days_s)
@@ -262,6 +406,21 @@ def analysis_spend():
         granularity = "month"
 
     account_id = int(account_id_s) if account_id_s else None
+
+    def _to_int_list(values: list[str]) -> list[int]:
+        out: list[int] = []
+        for v in values:
+            v = (v or "").strip()
+            if not v:
+                continue
+            try:
+                out.append(int(v))
+            except ValueError:
+                continue
+        return out
+
+    include_category_ids = _to_int_list(include_category_ids_s)
+    exclude_category_ids = _to_int_list(exclude_category_ids_s)
 
     end = date.today()
     start = end - timedelta(days=days)
@@ -288,6 +447,11 @@ def analysis_spend():
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
 
+    if include_category_ids:
+        stmt = stmt.where(Transaction.category_id.in_(include_category_ids))
+    elif exclude_category_ids:
+        stmt = stmt.where(~Transaction.category_id.in_(exclude_category_ids))
+
     rows = db.session.execute(stmt).all()
     x = [r.period for r in rows]
     y = [(r.spend_cents or 0) / 100 for r in rows]
@@ -299,7 +463,11 @@ def analysis_spend():
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color="#e2e8f0"),
-            xaxis=dict(title="Period"),
+            xaxis=(
+                dict(title="Period", type="category")
+                if granularity == "month"
+                else dict(title="Period")
+            ),
             yaxis=dict(title="Spend (USD)"),
             margin=dict(l=40, r=20, t=50, b=40),
         ),
@@ -325,6 +493,11 @@ def analysis_spend():
     if account_id is not None:
         cat_stmt = cat_stmt.where(Transaction.account_id == account_id)
 
+    if include_category_ids:
+        cat_stmt = cat_stmt.where(Transaction.category_id.in_(include_category_ids))
+    elif exclude_category_ids:
+        cat_stmt = cat_stmt.where(~Transaction.category_id.in_(exclude_category_ids))
+
     cat_rows = db.session.execute(cat_stmt).all()
     cat_labels = [r.category for r in cat_rows]
     cat_values = [(r.spend_cents or 0) / 100 for r in cat_rows]
@@ -342,6 +515,7 @@ def analysis_spend():
     )
 
     accounts = db.session.execute(db.select(Account).order_by(Account.institution, Account.name)).scalars().all()
+    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
 
     return render_template(
         "analysis_spend.html",
@@ -351,4 +525,7 @@ def analysis_spend():
         account_id=account_id,
         days=days,
         accounts=accounts,
+        categories=categories,
+        include_category_ids=include_category_ids,
+        exclude_category_ids=exclude_category_ids,
     )
