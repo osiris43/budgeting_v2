@@ -396,6 +396,7 @@ def analysis_spend():
     days_s = (request.args.get("days") or "365").strip()
     include_category_ids_s = request.args.getlist("include_category_id")
     exclude_category_ids_s = request.args.getlist("exclude_category_id")
+    include_transfers = (request.args.get("include_transfers") or "").strip() == "1"
 
     try:
         days = int(days_s)
@@ -421,6 +422,25 @@ def analysis_spend():
 
     include_category_ids = _to_int_list(include_category_ids_s)
     exclude_category_ids = _to_int_list(exclude_category_ids_s)
+
+    # By default, exclude transfers (e.g. paying off credit cards, moving money between accounts).
+    # This avoids double counting spend across accounts.
+    transfer_category_ids: set[int] = set()
+    if not include_transfers:
+        categories_all = db.session.execute(db.select(Category)).scalars().all()
+        by_parent: dict[int | None, list[Category]] = {}
+        for c in categories_all:
+            by_parent.setdefault(c.parent_id, []).append(c)
+
+        transfer_roots = [c for c in categories_all if (c.name or "").strip().lower() == "transfer"]
+        stack = [c.id for c in transfer_roots]
+        while stack:
+            cid = stack.pop()
+            if cid in transfer_category_ids:
+                continue
+            transfer_category_ids.add(cid)
+            for child in by_parent.get(cid, []):
+                stack.append(child.id)
 
     end = date.today()
     start = end - timedelta(days=days)
@@ -451,6 +471,9 @@ def analysis_spend():
         stmt = stmt.where(Transaction.category_id.in_(include_category_ids))
     elif exclude_category_ids:
         stmt = stmt.where(~Transaction.category_id.in_(exclude_category_ids))
+
+    if transfer_category_ids:
+        stmt = stmt.where(~Transaction.category_id.in_(sorted(transfer_category_ids)))
 
     rows = db.session.execute(stmt).all()
     x = [r.period for r in rows]
@@ -498,6 +521,9 @@ def analysis_spend():
     elif exclude_category_ids:
         cat_stmt = cat_stmt.where(~Transaction.category_id.in_(exclude_category_ids))
 
+    if transfer_category_ids:
+        cat_stmt = cat_stmt.where(~Transaction.category_id.in_(sorted(transfer_category_ids)))
+
     cat_rows = db.session.execute(cat_stmt).all()
     cat_labels = [r.category for r in cat_rows]
     cat_values = [(r.spend_cents or 0) / 100 for r in cat_rows]
@@ -528,4 +554,5 @@ def analysis_spend():
         categories=categories,
         include_category_ids=include_category_ids,
         exclude_category_ids=exclude_category_ids,
+        include_transfers=include_transfers,
     )

@@ -52,6 +52,13 @@
           </select>
         </div>
 
+        <div class="pb-1">
+          <label class="flex items-center gap-2 text-xs text-slate-300">
+            <input type="checkbox" name="include_transfers" value="1" class="h-4 w-4 rounded border-slate-700 bg-slate-950/40" {% if include_transfers %}checked{% endif %} />
+            include transfers
+          </label>
+        </div>
+
         <div class="pb-0.5">
           <button type="submit" class="rounded-lg bg-indigo-500 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-400">Update</button>
         </div>
