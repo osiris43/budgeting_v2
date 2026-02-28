@@ -71,17 +71,243 @@
       </div>
       <div class="rounded-xl border border-slate-800 bg-slate-950/20 p-4">
         <div id="chart-cats" class="w-full"></div>
+
+        <div
+          class="mt-6 border-t border-slate-800 pt-6"
+          x-data="analysisTxs()"
+          x-init="init()"
+        >
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div class="text-sm font-medium text-slate-100">Transactions</div>
+              <div class="mt-1 text-xs text-slate-400">
+                <span x-show="!includeIncome">Expenses only.</span>
+                <span x-show="includeIncome">Expenses + income/credits.</span>
+                Latest first.
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-end gap-3">
+              <div class="pb-1">
+                <label class="flex items-center gap-2 text-xs text-slate-300">
+                  <input type="checkbox" class="h-4 w-4 rounded border-slate-700 bg-slate-950/40" x-model="includeIncome" @change="page=1; load()" />
+                  include income/credits (negative)
+                </label>
+              </div>
+
+              <div>
+                <label class="block text-xs uppercase tracking-wide text-slate-400">Category</label>
+                <select
+                  class="mt-1 min-w-56 rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100"
+                  x-model="txCategoryId"
+                  @change="page=1; load()"
+                >
+                  <option value="">(all)</option>
+                  {% for c in categories %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs uppercase tracking-wide text-slate-400">Page size</label>
+                <select
+                  class="mt-1 w-28 rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100"
+                  x-model.number="pageSize"
+                  @change="page=1; load()"
+                >
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+
+              <div class="pb-0.5">
+                <button
+                  type="button"
+                  class="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-500"
+                  @click="load()"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+            <div>
+              <span x-show="loading">Loading…</span>
+              <span x-show="error" class="text-rose-300" x-text="error"></span>
+              <span x-show="!loading && !error">
+                Showing <span x-text="rows.length"></span> of <span x-text="total"></span>
+                <span class="mx-1">·</span>
+                Page total <span class="font-medium text-slate-200" x-text="formatUsd(pageTotal)"></span>
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-xs text-slate-100 hover:border-slate-500 disabled:opacity-40"
+                :disabled="page <= 1 || loading"
+                @click="page -= 1; load()"
+              >
+                Prev
+              </button>
+              <div>Page <span x-text="page"></span> / <span x-text="totalPages"></span></div>
+              <button
+                type="button"
+                class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-xs text-slate-100 hover:border-slate-500 disabled:opacity-40"
+                :disabled="page >= totalPages || loading"
+                @click="page += 1; load()"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-4 overflow-x-auto">
+            <table class="min-w-max w-full text-left text-sm">
+              <thead class="bg-slate-950/50 text-xs uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th class="px-3 py-2">Date</th>
+                  <th class="px-3 py-2">Merchant</th>
+                  <th class="px-3 py-2">Category</th>
+                  <th class="px-3 py-2 text-right">Amount</th>
+                  <th class="px-3 py-2">Description</th>
+                  <th class="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                <template x-for="r in rows" :key="r.id">
+                  <tr class="hover:bg-slate-950/40">
+                    <td class="px-3 py-2 text-slate-300" x-text="r.posted_date"></td>
+                    <td class="px-3 py-2 text-slate-300" x-text="r.merchant"></td>
+                    <td class="px-3 py-2 text-slate-200" x-text="r.category"></td>
+                    <td class="px-3 py-2 text-right font-medium text-slate-100" x-text="formatUsd(r.amount)"></td>
+                    <td class="px-3 py-2 text-slate-200" x-text="r.description"></td>
+                    <td class="px-3 py-2">
+                      <a
+                        class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-sm text-slate-100 hover:border-slate-500"
+                        :href="'/transactions/' + r.id + '/edit?next=' + encodeURIComponent(window.location.pathname + window.location.search)"
+                      >
+                        Edit
+                      </a>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="!loading && rows.length === 0">
+                  <td class="px-3 py-4 text-sm text-slate-300" colspan="6">No transactions found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
   <script id="fig-json" type="application/json">{{ fig_json | safe }}</script>
   <script id="fig-cats-json" type="application/json">{{ fig_cats_json | safe }}</script>
+  <script id="analysis-tx-config" type="application/json">{{ {
+    'days': days,
+    'account_id': account_id,
+    'include_category_ids': include_category_ids,
+    'exclude_category_ids': exclude_category_ids,
+    'include_transfers': include_transfers,
+  } | tojson }}</script>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
   <script>
     const fig = JSON.parse(document.getElementById('fig-json').textContent);
     const figCats = JSON.parse(document.getElementById('fig-cats-json').textContent);
     Plotly.newPlot('chart', fig.data, fig.layout, {responsive: true, displayModeBar: false});
     Plotly.newPlot('chart-cats', figCats.data, figCats.layout, {responsive: true, displayModeBar: false});
+  </script>
+
+  <script>
+    function analysisTxs() {
+      const cfg = JSON.parse(document.getElementById('analysis-tx-config').textContent);
+      return {
+        page: 1,
+        pageSize: 20,
+        total: 0,
+        rows: [],
+        loading: false,
+        error: '',
+        txCategoryId: '',
+        includeIncome: false,
+
+        init() {
+          this.load();
+        },
+
+        get totalPages() {
+          return Math.max(1, Math.ceil((this.total || 0) / (this.pageSize || 20)));
+        },
+
+        get pageTotal() {
+          return (this.rows || []).reduce((sum, r) => {
+            const n = Number(r?.amount);
+            return sum + (Number.isFinite(n) ? n : 0);
+          }, 0);
+        },
+
+        formatUsd(v) {
+          try {
+            return '$' + Number(v || 0).toFixed(2);
+          } catch {
+            return '$0.00';
+          }
+        },
+
+        buildUrl() {
+          const params = new URLSearchParams();
+          params.set('days', String(cfg.days || 365));
+          params.set('account_id', cfg.account_id ? String(cfg.account_id) : '');
+
+          for (const cid of (cfg.include_category_ids || [])) {
+            params.append('include_category_id', String(cid));
+          }
+          for (const cid of (cfg.exclude_category_ids || [])) {
+            params.append('exclude_category_id', String(cid));
+          }
+
+          if (cfg.include_transfers) {
+            params.set('include_transfers', '1');
+          }
+
+          if (this.includeIncome) {
+            params.set('include_income', '1');
+          }
+
+          if (this.txCategoryId) {
+            params.set('tx_category_id', this.txCategoryId);
+          }
+          params.set('page', String(this.page));
+          params.set('page_size', String(this.pageSize));
+          return '/analysis/spend/transactions.json?' + params.toString();
+        },
+
+        async load() {
+          this.loading = true;
+          this.error = '';
+          try {
+            const res = await fetch(this.buildUrl(), { headers: { 'Accept': 'application/json' } });
+            if (!res.ok) {
+              throw new Error('Request failed');
+            }
+            const data = await res.json();
+            this.total = data.total || 0;
+            this.rows = data.rows || [];
+            if (this.page > this.totalPages) {
+              this.page = this.totalPages;
+            }
+          } catch (e) {
+            this.error = 'Failed to load transactions';
+          } finally {
+            this.loading = false;
+          }
+        },
+      }
+    }
   </script>
 {% endblock %}

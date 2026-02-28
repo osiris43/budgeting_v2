@@ -13,6 +13,28 @@ from .services.normalization import extract_detail, extract_merchant, normalize_
 bp = Blueprint("main", __name__)
 
 
+def _analysis_transfer_category_ids(*, include_transfers: bool) -> set[int]:
+    if include_transfers:
+        return set()
+
+    categories_all = db.session.execute(db.select(Category)).scalars().all()
+    by_parent: dict[int | None, list[Category]] = {}
+    for c in categories_all:
+        by_parent.setdefault(c.parent_id, []).append(c)
+
+    transfer_ids: set[int] = set()
+    transfer_roots = [c for c in categories_all if (c.name or "").strip().lower() == "transfer"]
+    stack = [c.id for c in transfer_roots]
+    while stack:
+        cid = stack.pop()
+        if cid in transfer_ids:
+            continue
+        transfer_ids.add(cid)
+        for child in by_parent.get(cid, []):
+            stack.append(child.id)
+    return transfer_ids
+
+
 @bp.get("/")
 def home():
     accounts_count = db.session.execute(db.select(db.func.count(Account.id))).scalar_one()
@@ -425,22 +447,7 @@ def analysis_spend():
 
     # By default, exclude transfers (e.g. paying off credit cards, moving money between accounts).
     # This avoids double counting spend across accounts.
-    transfer_category_ids: set[int] = set()
-    if not include_transfers:
-        categories_all = db.session.execute(db.select(Category)).scalars().all()
-        by_parent: dict[int | None, list[Category]] = {}
-        for c in categories_all:
-            by_parent.setdefault(c.parent_id, []).append(c)
-
-        transfer_roots = [c for c in categories_all if (c.name or "").strip().lower() == "transfer"]
-        stack = [c.id for c in transfer_roots]
-        while stack:
-            cid = stack.pop()
-            if cid in transfer_category_ids:
-                continue
-            transfer_category_ids.add(cid)
-            for child in by_parent.get(cid, []):
-                stack.append(child.id)
+    transfer_category_ids = _analysis_transfer_category_ids(include_transfers=include_transfers)
 
     end = date.today()
     start = end - timedelta(days=days)
@@ -556,3 +563,128 @@ def analysis_spend():
         exclude_category_ids=exclude_category_ids,
         include_transfers=include_transfers,
     )
+
+
+@bp.get("/analysis/spend/transactions.json")
+def analysis_spend_transactions_json():
+    account_id_s = (request.args.get("account_id") or "").strip()
+    days_s = (request.args.get("days") or "365").strip()
+    include_category_ids_s = request.args.getlist("include_category_id")
+    exclude_category_ids_s = request.args.getlist("exclude_category_id")
+    include_transfers = (request.args.get("include_transfers") or "").strip() == "1"
+    include_income = (request.args.get("include_income") or "").strip() == "1"
+    tx_category_id_s = (request.args.get("tx_category_id") or "").strip()
+    page_s = (request.args.get("page") or "1").strip()
+    page_size_s = (request.args.get("page_size") or "20").strip()
+
+    try:
+        days = int(days_s)
+    except ValueError:
+        days = 365
+
+    account_id = int(account_id_s) if account_id_s else None
+
+    def _to_int_list(values: list[str]) -> list[int]:
+        out: list[int] = []
+        for v in values:
+            v = (v or "").strip()
+            if not v:
+                continue
+            try:
+                out.append(int(v))
+            except ValueError:
+                continue
+        return out
+
+    include_category_ids = _to_int_list(include_category_ids_s)
+    exclude_category_ids = _to_int_list(exclude_category_ids_s)
+
+    tx_category_id: int | None
+    if tx_category_id_s:
+        try:
+            tx_category_id = int(tx_category_id_s)
+        except ValueError:
+            tx_category_id = None
+    else:
+        tx_category_id = None
+
+    try:
+        page = int(page_s)
+    except ValueError:
+        page = 1
+    if page < 1:
+        page = 1
+
+    try:
+        page_size = int(page_size_s)
+    except ValueError:
+        page_size = 20
+    if page_size <= 0:
+        page_size = 20
+    if page_size > 200:
+        page_size = 200
+
+    end = date.today()
+    start = end - timedelta(days=days)
+
+    transfer_category_ids = _analysis_transfer_category_ids(include_transfers=include_transfers)
+
+    base_where = [
+        Transaction.posted_date >= start,
+        Transaction.posted_date <= end,
+    ]
+    if include_income:
+        base_where.append(Transaction.amount_cents != 0)
+    else:
+        base_where.append(Transaction.amount_cents > 0)
+    if account_id is not None:
+        base_where.append(Transaction.account_id == account_id)
+
+    if include_category_ids:
+        base_where.append(Transaction.category_id.in_(include_category_ids))
+    elif exclude_category_ids:
+        base_where.append(~Transaction.category_id.in_(exclude_category_ids))
+
+    if transfer_category_ids:
+        base_where.append(~Transaction.category_id.in_(sorted(transfer_category_ids)))
+
+    if tx_category_id is not None:
+        base_where.append(Transaction.category_id == tx_category_id)
+
+    total = (
+        db.session.execute(db.select(db.func.count(Transaction.id)).where(*base_where)).scalar_one()
+        or 0
+    )
+
+    stmt = (
+        db.select(Transaction, Category.name.label("category_name"))
+        .select_from(Transaction)
+        .join(Category, Transaction.category_id == Category.id, isouter=True)
+        .where(*base_where)
+        .order_by(Transaction.posted_date.desc(), Transaction.id.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    )
+
+    rows = db.session.execute(stmt).all()
+    out_rows: list[dict] = []
+    for tx, category_name in rows:
+        out_rows.append(
+            {
+                "id": tx.id,
+                "posted_date": tx.posted_date.isoformat() if tx.posted_date else "",
+                "amount": (tx.amount_cents or 0) / 100,
+                "merchant": tx.merchant or "",
+                "description": tx.description_clean or tx.description_raw or "",
+                "category_id": tx.category_id,
+                "category": category_name or "",
+            }
+        )
+
+    return {
+        "ok": True,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "rows": out_rows,
+    }
