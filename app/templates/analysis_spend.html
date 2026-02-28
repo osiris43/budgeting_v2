@@ -181,10 +181,14 @@
                 <template x-for="r in rows" :key="r.id">
                   <tr class="hover:bg-slate-950/40">
                     <td class="px-3 py-2 text-slate-300" x-text="r.posted_date"></td>
-                    <td class="px-3 py-2 text-slate-300" x-text="r.merchant"></td>
+                    <td class="px-3 py-2 text-slate-300">
+                      <span class="block max-w-[15ch] truncate" :title="r.merchant" x-text="r.merchant"></span>
+                    </td>
                     <td class="px-3 py-2 text-slate-200" x-text="r.category"></td>
                     <td class="px-3 py-2 text-right font-medium text-slate-100" x-text="formatUsd(r.amount)"></td>
-                    <td class="px-3 py-2 text-slate-200" x-text="r.description"></td>
+                    <td class="px-3 py-2 text-slate-200">
+                      <span class="block max-w-[30ch] truncate" :title="r.description" x-text="r.description"></span>
+                    </td>
                     <td class="px-3 py-2">
                       <a
                         class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-sm text-slate-100 hover:border-slate-500"
