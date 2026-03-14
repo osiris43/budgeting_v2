@@ -121,6 +121,13 @@ def register_cli(app: Flask) -> None:
                         return str(row.get(key)).strip()
                 return None
 
+            def normalize_desc_for_fingerprint(s: str) -> str:
+                s = (s or "").lower().strip()
+                s = re.sub(r"\s+", " ", s)
+                s = re.sub(r"\b\d{6,}\b", "", s)
+                s = re.sub(r"\s+", " ", s).strip()
+                return s
+
             imported = 0
             skipped = 0
             skipped_missing_date = 0
@@ -136,6 +143,16 @@ def register_cli(app: Flask) -> None:
                 check_no = get(row, "check number", "check #", "check")
                 card_no = get(row, "card no.", "card no", "card")
                 bank_category_raw = get(row, "category")
+                external_id = get(
+                    row,
+                    "reference number",
+                    "reference",
+                    "ref",
+                    "transaction id",
+                    "transaction_id",
+                    "fitid",
+                    "id",
+                )
 
                 if not date_s:
                     skipped_missing_date += 1
@@ -167,8 +184,25 @@ def register_cli(app: Flask) -> None:
                     amount_cents = -amount_cents
                 posted_date = _parse_date(date_s)
 
+                if external_id:
+                    ext_exists = db.session.execute(
+                        db.select(Transaction).where(
+                            Transaction.account_id == acct.id,
+                            Transaction.external_id == external_id,
+                        )
+                    ).scalar_one_or_none()
+                    if ext_exists:
+                        skipped_duplicate += 1
+                        if len(sample_duplicates) < 5:
+                            sample_duplicates.append(
+                                f"external_id={external_id} {posted_date.isoformat()} {amount_cents/100:.2f} {desc}"
+                            )
+                        skipped += 1
+                        continue
+
+                desc_norm = normalize_desc_for_fingerprint(desc)
                 fingerprint = hashlib.sha1(
-                    f"{acct.id}|{posted_date.isoformat()}|{amount_cents}|{desc}".encode("utf-8")
+                    f"{acct.id}|{posted_date.isoformat()}|{amount_cents}|{desc_norm}".encode("utf-8")
                 ).hexdigest()[:40]
 
                 exists = db.session.execute(
@@ -191,6 +225,7 @@ def register_cli(app: Flask) -> None:
                     description_raw=desc,
                     card_no=card_no,
                     bank_category_raw=bank_category_raw,
+                    external_id=external_id,
                     fingerprint=fingerprint,
                     category_source="unknown",
                 )
