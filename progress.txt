@@ -4,7 +4,8 @@
 - CLI commands are registered via `register_cli(app)` in `app/cli.py` — test with `app.test_cli_runner(mix_stderr=False)`
 - Test isolation: use an autouse fixture that drops/recreates all tables between tests (savepoints don't work reliably with SQLite in-memory)
 - Amounts are stored as integer cents (`amount_cents`); positive = expense, negative = credit/refund
-- `MerchantRule.pattern` is a unique column — cannot insert duplicate patterns in tests
+- `MerchantRule` has a composite unique constraint on (pattern, detail_pattern) — same pattern can exist with different detail_patterns
+- `apply_rules` uses two-pass matching: specific rules (with detail_pattern) first via `re.search`, then fallback rules (detail_pattern IS NULL)
 
 ---
 
@@ -26,4 +27,17 @@
   - `begin_nested()` savepoints for test isolation are unreliable with SQLite — drop/recreate tables is simpler and works
   - Existing code has many lines >79 chars; flake8 needs `max-line-length = 120` in setup.cfg
   - CLI runner tests need `mix_stderr=False` to get clean output assertions
+---
+
+## 2026-04-11 - US-002
+- What was implemented: Detail-aware merchant rules with nullable `detail_pattern` column on MerchantRule
+- Files changed:
+  - `app/models.py` — added `detail_pattern` column, changed unique constraint to composite (pattern + detail_pattern)
+  - `app/services/categorization.py` — updated `apply_rules` to separate specific (with detail_pattern) vs fallback rules; specific rules use `re.search` case-insensitive against description_clean
+  - `migrations/versions/d4e5f6a7b8c9_add_merchant_rule_detail_pattern.py` — Alembic migration adding the column
+  - `tests/test_categorization.py` — added `TestDetailPatternRules` class with 6 new tests covering: match, fallback, no-match-no-fallback, priority over fallback, case-insensitive, and backward compatibility
+- **Learnings for future iterations:**
+  - SQLite batch_alter_table recreates the entire table, so dropping/adding named constraints is tricky — simpler to just add the column and handle constraints in the model
+  - `MerchantRule.pattern` was originally unique alone; now composite unique on (pattern, detail_pattern) to allow same merchant with different detail patterns
+  - `apply_rules` now does two-pass matching: specific rules first, then fallback — order of insertion doesn't matter
 ---

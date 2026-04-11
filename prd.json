@@ -41,7 +41,7 @@
         "pytest passes with tests covering: rule with no detail_pattern, rule with matching detail_pattern, rule with non-matching detail_pattern falling through to LLM"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "detail_pattern matching should use Python re.search (case-insensitive) against transaction.description_clean. Merchant match continues to use substring as before. Sam's Club example: detail_pattern='UNLEADED|GALLONS|GAS' -> Gas, detail_pattern=NULL -> Groceries (fallback).",
       "dependsOn": ["US-001"]
     },
