@@ -1,0 +1,18 @@
+## Codebase Patterns
+- Flask app uses Application Factory pattern (create_app in app/__init__.py)
+- Config uses class-based pattern in app/config.py with development/testing/production
+- Testing config uses SQLite in-memory DB; set FLASK_ENV=testing or pass config_name='testing'
+- Run quality checks from project root: `flake8 app/` and `pytest`
+- Routes live in app/routes.py as a single Blueprint named 'main'
+- CLI commands live in app/cli.py, registered via register_cli(app) in app/__init__.py
+- Services live in app/services/ (categorization.py, normalization.py, ollama_client.py)
+- Templates use Tailwind CSS with dark slate theme
+- Models: Account, Category, StatementImport, Transaction, MerchantRule in app/models.py
+- Amount convention: positive = expense/debit, negative = credit/refund/payment
+- Fingerprint dedup: sha1 of account_id|date|amount_cents|normalized_desc
+- Never commit instance/ directory or *.db files — contains personal financial data
+- The PRD lives at project root: prd.json
+
+# Ralph Progress Log
+Started: Sat Apr 11 2026
+---
