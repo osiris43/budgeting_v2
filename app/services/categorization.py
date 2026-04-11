@@ -1,4 +1,5 @@
 import os
+import re
 
 from typing import Optional
 
@@ -10,11 +11,29 @@ from .ollama_client import categorize_with_ollama
 
 def apply_rules(*, merchant: Optional[str], description_clean: str) -> Optional[Category]:
     rules = db.session.execute(db.select(MerchantRule)).scalars().all()
-    haystack = f"{merchant or ''} {description_clean}".upper()
+    merchant_upper = (merchant or "").upper()
+    haystack = f"{merchant_upper} {description_clean}".upper()
+
+    # Separate into specific (with detail_pattern) and fallback (without) rules
+    specific_matches: list[MerchantRule] = []
+    fallback_matches: list[MerchantRule] = []
 
     for rule in rules:
-        if rule.pattern.upper() in haystack:
+        if rule.pattern.upper() not in haystack:
+            continue
+        if rule.detail_pattern:
+            specific_matches.append(rule)
+        else:
+            fallback_matches.append(rule)
+
+    # Try specific rules first (detail_pattern must match description_clean)
+    for rule in specific_matches:
+        if re.search(rule.detail_pattern, description_clean or "", re.IGNORECASE):
             return db.session.get(Category, rule.category_id)
+
+    # Fall back to broad rules (no detail_pattern)
+    for rule in fallback_matches:
+        return db.session.get(Category, rule.category_id)
 
     return None
 

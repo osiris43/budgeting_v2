@@ -68,8 +68,13 @@ class Transaction(db.Model):
 
 class MerchantRule(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    pattern = db.Column(db.String(500), nullable=False, unique=True)
+    pattern = db.Column(db.String(500), nullable=False)
+    detail_pattern = db.Column(db.String(500), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey("category.id"), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     category = db.relationship("Category")
+
+    __table_args__ = (
+        db.UniqueConstraint("pattern", "detail_pattern", name="uq_rule_pattern_detail"),
+    )
