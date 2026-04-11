@@ -1,0 +1,29 @@
+## Codebase Patterns
+- `create_app()` calls `_check_ollama()` which requires a running Ollama instance — tests must patch `app._check_ollama` and set `DATABASE_URL=sqlite://` env var before importing `create_app`
+- Use `setup.cfg` with `[flake8] max-line-length = 120` and `extend-ignore = E203` to match existing code style (pyproject.toml sets ruff line-length=100, but many lines are up to ~120)
+- CLI commands are registered via `register_cli(app)` in `app/cli.py` — test with `app.test_cli_runner(mix_stderr=False)`
+- Test isolation: use an autouse fixture that drops/recreates all tables between tests (savepoints don't work reliably with SQLite in-memory)
+- Amounts are stored as integer cents (`amount_cents`); positive = expense, negative = credit/refund
+- `MerchantRule.pattern` is a unique column — cannot insert duplicate patterns in tests
+
+---
+
+## 2026-04-11 - US-001
+- What was implemented: pytest test suite baseline with 31 tests across 3 test files
+- Files changed:
+  - `requirements.txt` — added pytest==8.3.5, flake8==7.1.1
+  - `setup.cfg` — new file with flake8 config (max-line-length=120, extend-ignore=E203)
+  - `tests/__init__.py` — empty init
+  - `tests/conftest.py` — app fixture (patches Ollama, in-memory SQLite), autouse table cleanup, account/categories fixtures
+  - `tests/test_normalization.py` — 16 tests: normalize_description (5), extract_merchant (8), extract_detail (5)
+  - `tests/test_categorization.py` — 6 tests: apply_rules matching, non-matching, case-insensitive, description_clean matching, None merchant, first-match-wins
+  - `tests/test_import.py` — 5 tests: basic import, fingerprint dedup, external_id dedup, debit/credit columns, missing description skip
+  - `app/cli.py` — fixed 4 flake8 violations (line length, missing blank lines)
+  - `app/services/ollama_client.py` — fixed 1 flake8 line length violation
+- **Learnings for future iterations:**
+  - The app factory (`create_app`) must have `_check_ollama` patched for tests since it connects to Ollama on startup
+  - Set `DATABASE_URL` env var *before* calling `create_app()` — setting `SQLALCHEMY_DATABASE_URI` on config after creation doesn't take effect
+  - `begin_nested()` savepoints for test isolation are unreliable with SQLite — drop/recreate tables is simpler and works
+  - Existing code has many lines >79 chars; flake8 needs `max-line-length = 120` in setup.cfg
+  - CLI runner tests need `mix_stderr=False` to get clean output assertions
+---

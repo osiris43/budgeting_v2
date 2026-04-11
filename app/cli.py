@@ -111,7 +111,9 @@ def register_cli(app: Flask) -> None:
             if looks_like_anbtx_export and not getattr(acct, "invert_csv_amounts", False):
                 click.echo(
                     "Warning: CSV looks like an ANBTX export (deposits positive / withdrawals negative). "
-                    "Consider setting account.invert_csv_amounts (create-account --invert-csv-amounts) to map into app convention."
+                    "Consider setting account.invert_csv_amounts "
+                    "(create-account --invert-csv-amounts) "
+                    "to map into app convention."
                 )
 
             def get(row: dict, *candidates: str) -> str | None:
@@ -206,7 +208,10 @@ def register_cli(app: Flask) -> None:
                 ).hexdigest()[:40]
 
                 exists = db.session.execute(
-                    db.select(Transaction).where(Transaction.account_id == acct.id, Transaction.fingerprint == fingerprint)
+                    db.select(Transaction).where(
+                        Transaction.account_id == acct.id,
+                        Transaction.fingerprint == fingerprint,
+                    )
                 ).scalar_one_or_none()
                 if exists:
                     skipped_duplicate += 1
@@ -289,7 +294,10 @@ def register_cli(app: Flask) -> None:
 
     def _write_pdf_csv(*, out_csv_path: Path, rows: list[dict]) -> None:
         if not rows:
-            raise click.ClickException("No transactions found in PDF. If this is a scanned PDF, OCR support may be needed.")
+            raise click.ClickException(
+                "No transactions found in PDF. "
+                "If this is a scanned PDF, OCR support may be needed."
+            )
 
         out_csv_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = ["date", "reference_number", "description", "amount"]
@@ -588,6 +596,7 @@ def register_cli(app: Flask) -> None:
     @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
     def sams_pdf_to_csv(pdf_path: Path, out_csv_path: Path) -> None:
         _pdf_to_csv(pdf_path=pdf_path, out_csv_path=out_csv_path, fmt="sams")
+
 
 def _parse_amount_to_cents(amount: Optional[str], debit: Optional[str], credit: Optional[str]) -> int:
     if amount is not None:

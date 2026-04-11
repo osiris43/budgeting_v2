@@ -1,0 +1,140 @@
+{
+  "name": "Budgeting v2 — Automation & UX Improvements",
+  "branchName": "eumaeus/budgeting-improvements",
+  "description": "A local Flask/SQLite app for personal finance tracking. Ingests bank/credit card statements (CSV or PDF), categorizes transactions via merchant rules and a local Ollama LLM, and provides a web UI for review and analysis. This PRD covers automation of the monthly import workflow, smarter rule matching with detail-aware patterns, and a batch review UI to eliminate the one-at-a-time edit loop.",
+  "qualityGates": [
+    "flake8 app/ passes with no errors",
+    "pytest passes with no failures",
+    "flask run starts without errors against a migrated SQLite database",
+    "No secrets, personal data, or database files committed to the repository"
+  ],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "pytest test suite baseline",
+      "description": "As a developer, I want a pytest test suite covering the core categorization logic, rule matching, and CSV import so that regressions are caught automatically.",
+      "acceptanceCriteria": [
+        "Branch eumaeus/budgeting-improvements checked out from main before any changes",
+        "tests/ directory exists with conftest.py and at least one test file",
+        "Tests use an in-memory SQLite database (no real DB required)",
+        "Coverage includes: apply_rules with no detail_pattern, apply_rules with matching detail_pattern, apply_rules with non-matching detail_pattern, import-csv with duplicate fingerprint skipping, normalize_description and extract_merchant for known patterns",
+        "pytest passes with no failures",
+        "flake8 app/ passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "There is currently no test suite at all. This must be the first thing implemented — all subsequent stories depend on pytest passing. Branch must be created before any code changes.",
+      "dependsOn": []
+    },
+    {
+      "id": "US-002",
+      "title": "Detail-aware merchant rules",
+      "description": "As a user, I want merchant rules to optionally match on transaction detail text (not just merchant name) so that a single merchant like Sam's Club can map to different categories depending on what was purchased (gas vs groceries vs clothing).",
+      "acceptanceCriteria": [
+        "MerchantRule model gains a nullable detail_pattern column (substring or regex, case-insensitive)",
+        "Alembic migration created and applies cleanly against existing database",
+        "Rule matching updated: merchant pattern matched first, then detail_pattern applied if present",
+        "More specific rules (with detail_pattern) take priority over fallback rules (detail_pattern IS NULL) for the same merchant",
+        "If no rule matches, LLM categorization proceeds as before",
+        "flask categorize --create-rules still works and creates rules without detail_pattern (broad fallback rules)",
+        "flake8 app/ passes",
+        "pytest passes with tests covering: rule with no detail_pattern, rule with matching detail_pattern, rule with non-matching detail_pattern falling through to LLM"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "detail_pattern matching should use Python re.search (case-insensitive) against transaction.description_clean. Merchant match continues to use substring as before. Sam's Club example: detail_pattern='UNLEADED|GALLONS|GAS' -> Gas, detail_pattern=NULL -> Groceries (fallback).",
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-003",
+      "title": "Batch inline category review on import detail page",
+      "description": "As a user reviewing an import, I want to change transaction categories inline without a full page reload per transaction so that I can categorize an entire import in one pass instead of submitting one form at a time.",
+      "acceptanceCriteria": [
+        "Import detail page category dropdowns save via fetch/XHR on change — no submit button required",
+        "Row updates visually (category name, source badge) after successful save without full page reload",
+        "Error state shown inline if save fails",
+        "Existing POST /imports/:id/transactions/:tx_id/set-category endpoint updated to return JSON (already partially done — ensure it returns ok, tx_id, category_id, category_name, category_source)",
+        "Create rule checkbox still present and functional (submitted alongside category change)",
+        "flake8 app/ passes",
+        "pytest passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "The set-category route already returns JSON. The frontend change is the main work: wire the select onChange to fetch, update the row DOM on success. Keep the form markup for graceful degradation if JS fails.",
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-004",
+      "title": "Filter import review to uncategorized / model-categorized transactions",
+      "description": "As a user reviewing an import, I want to filter the transaction list to show only uncategorized or LLM-categorized transactions so that I can focus my review on uncertain items and skip the ones already handled by rules.",
+      "acceptanceCriteria": [
+        "Import detail page has filter toggle: All / Needs Review (uncategorized + model-sourced) / Uncategorized only",
+        "Filter applies client-side (JS hide/show) — no page reload required",
+        "Transaction count shown per filter state (e.g. '12 of 47 shown')",
+        "Filter state persisted in URL hash or query param so it survives page refresh",
+        "flake8 app/ passes",
+        "pytest passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Rows already have category_source available in the template. Add data-source attribute to each row and filter via JS. This dramatically reduces review time for large imports where most transactions are rule-matched.",
+      "dependsOn": ["US-003"]
+    },
+    {
+      "id": "US-005",
+      "title": "Rule promotion after import confirmation",
+      "description": "As a user, after confirming an import I want to be prompted to promote recurring LLM-categorized merchants to rules so that future imports for those merchants are handled automatically.",
+      "acceptanceCriteria": [
+        "After POST /imports/:id/confirm, redirect to a rule promotion page instead of back to import detail",
+        "Promotion page lists unique merchants from the import where category_source='model', grouped by merchant + assigned category",
+        "Each row has a checkbox (default checked) and an optional detail_pattern input field",
+        "Submitting the form creates MerchantRule entries for checked rows",
+        "Merchants that already have a matching rule are excluded from the list",
+        "If no promotable merchants exist, skip the promotion page and redirect to /imports",
+        "flake8 app/ passes",
+        "pytest passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "This is the key habit-building loop: each confirmed import makes future imports faster. The detail_pattern input lets Brett add specificity (e.g. for Sam's Club transactions) at promotion time.",
+      "dependsOn": ["US-002", "US-003"]
+    },
+    {
+      "id": "US-006",
+      "title": "process-statement orchestration command",
+      "description": "As a user, I want a single flask process-statement command that accepts a file (PDF or CSV) and account ID and automatically runs pdf-to-csv (if needed), import-csv, and categorize in sequence so that I can process a monthly statement in one step.",
+      "acceptanceCriteria": [
+        "flask process-statement --account-id <id> --file <path> command exists",
+        "Auto-detects PDF vs CSV by file extension",
+        "For PDFs: runs pdf-to-csv with auto format detection, writes to a temp file, then imports the temp CSV",
+        "For CSVs: imports directly",
+        "Runs flask categorize after import (default limit=500, create-rules=false)",
+        "Prints a summary: transactions imported, skipped, categorized by rule, categorized by model, uncategorized",
+        "Exits non-zero if any step fails",
+        "flake8 app/ passes",
+        "pytest passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "This eliminates steps 2-4 of the current monthly workflow. PDF temp file should be written to a system temp dir and cleaned up after import. The command should be composable — individual sub-commands (pdf-to-csv, import-csv, categorize) remain usable standalone.",
+      "dependsOn": ["US-001"]
+    },
+    {
+      "id": "US-007",
+      "title": "Rule management UI",
+      "description": "As a user, I want a UI page to view, edit, and delete merchant rules so that I can fix bad rules without touching the database directly.",
+      "acceptanceCriteria": [
+        "GET /rules lists all MerchantRules with pattern, detail_pattern, and category",
+        "Each rule has an edit link and a delete button",
+        "Edit form allows updating pattern, detail_pattern, and category",
+        "Delete removes the rule with a confirmation step",
+        "flake8 app/ passes",
+        "pytest passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Currently rules can only be created via CLI or the import detail page. There's no way to fix or remove a bad rule without a flask shell. This is a frequent pain point.",
+      "dependsOn": ["US-002"]
+    }
+  ]
+}

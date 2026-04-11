@@ -5,3 +5,5 @@ python-dotenv==1.0.1
 requests==2.32.3
 plotly==5.22.0
 pdfplumber==0.11.4
+pytest==8.3.5
+flake8==7.1.1
