@@ -30,6 +30,13 @@
     </div>
 
     <div class="mt-6">
+      <div class="flex items-center gap-3 mb-3" id="filter-bar">
+        <span class="text-sm text-slate-400">Filter:</span>
+        <button type="button" data-filter="all" class="filter-btn rounded-lg px-3 py-1 text-sm font-medium border border-indigo-500 bg-indigo-600 text-white">All</button>
+        <button type="button" data-filter="needs-review" class="filter-btn rounded-lg px-3 py-1 text-sm font-medium border border-slate-700 bg-slate-950/40 text-slate-300 hover:border-slate-500">Needs review</button>
+        <button type="button" data-filter="uncategorized" class="filter-btn rounded-lg px-3 py-1 text-sm font-medium border border-slate-700 bg-slate-950/40 text-slate-300 hover:border-slate-500">Uncategorized</button>
+        <span class="text-sm text-slate-400 ml-2" id="filter-count"></span>
+      </div>
       <div class="rounded-xl border border-slate-800 bg-slate-950/20">
         <div class="overflow-x-auto">
           <table class="min-w-max w-full text-left text-sm">
@@ -47,7 +54,7 @@
               </thead>
               <tbody class="divide-y divide-slate-800">
                 {% for t in txs %}
-                  <tr class="hover:bg-slate-950/40" data-tx-id="{{ t.id }}">
+                  <tr class="hover:bg-slate-950/40" data-tx-id="{{ t.id }}" data-source="{{ t.category_source or 'unknown' }}">
                     <td class="px-4 py-3 text-slate-300">{{ t.posted_date }}</td>
                     <td class="px-4 py-3 text-slate-300">{{ t.merchant or "" }}</td>
                     <td class="px-4 py-3 text-slate-300">{{ t.bank_category_raw or "" }}</td>
@@ -91,6 +98,54 @@
 {% block scripts %}
 <script>
 (function () {
+  // --- Filter logic ---
+  var allRows = document.querySelectorAll('tbody tr[data-source]');
+  var totalCount = allRows.length;
+  var filterCountEl = document.getElementById('filter-count');
+  var filterBtns = document.querySelectorAll('.filter-btn');
+
+  function applyFilter(filterName) {
+    var shown = 0;
+    allRows.forEach(function (row) {
+      var source = row.getAttribute('data-source');
+      var visible = true;
+      if (filterName === 'needs-review') {
+        visible = (source === 'unknown' || source === 'model');
+      } else if (filterName === 'uncategorized') {
+        visible = (source === 'unknown');
+      }
+      row.style.display = visible ? '' : 'none';
+      if (visible) shown++;
+    });
+    filterCountEl.textContent = shown + ' of ' + totalCount + ' shown';
+
+    filterBtns.forEach(function (btn) {
+      if (btn.getAttribute('data-filter') === filterName) {
+        btn.className = 'filter-btn rounded-lg px-3 py-1 text-sm font-medium border border-indigo-500 bg-indigo-600 text-white';
+      } else {
+        btn.className = 'filter-btn rounded-lg px-3 py-1 text-sm font-medium border border-slate-700 bg-slate-950/40 text-slate-300 hover:border-slate-500';
+      }
+    });
+
+    // Persist in URL hash
+    if (filterName === 'all') {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    } else {
+      history.replaceState(null, '', window.location.pathname + window.location.search + '#filter=' + filterName);
+    }
+  }
+
+  filterBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      applyFilter(btn.getAttribute('data-filter'));
+    });
+  });
+
+  // Restore filter from URL hash on load
+  var hashMatch = window.location.hash.match(/filter=([\w-]+)/);
+  var initialFilter = hashMatch ? hashMatch[1] : 'all';
+  applyFilter(initialFilter);
+
   // Hide Save buttons when JS is available — saves happen on select change
   document.querySelectorAll('.js-save-btn').forEach(function (btn) {
     btn.style.display = 'none';
@@ -125,6 +180,7 @@
           if (!data.ok) throw new Error('Save failed');
           row.querySelector('[data-field="category_name"]').textContent = data.category_name || '';
           row.querySelector('[data-field="category_source"]').textContent = data.category_source || '';
+          row.setAttribute('data-source', data.category_source || 'unknown');
         })
         .catch(function (err) {
           errorEl.textContent = err.message || 'Save failed';
