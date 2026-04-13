@@ -57,3 +57,13 @@
   - Form markup is preserved for graceful degradation — JS hides Submit buttons and intercepts select changes, but the form still works without JS
   - `StatementImport` model requires `account_id`, `filename`, `imported_at`, and `status` fields when creating test fixtures
 ---
+
+## 2026-04-13 - US-004
+- What was implemented: Client-side filter toggle on import detail page to show All / Needs Review (uncategorized + model-sourced) / Uncategorized only transactions
+- Files changed:
+  - `app/templates/import_detail.html` — added `data-source` attribute to each `<tr>` row; added filter bar with 3 toggle buttons and count display above the table; added JS filtering logic with URL hash persistence (`#filter=needs-review` or `#filter=uncategorized`); updated inline save handler to update `data-source` attribute after category change so filter stays accurate
+- **Learnings for future iterations:**
+  - `category_source` values in the system: `rule`, `model`, `manual`, `unknown` — "needs review" means `unknown` or `model`
+  - URL hash is the simplest way to persist client-side filter state across page refresh without touching the backend
+  - When inline save changes a row's category_source, update the `data-source` attribute too so JS filters remain correct without re-rendering
+---

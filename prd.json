@@ -76,7 +76,7 @@
         "pytest passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Rows already have category_source available in the template. Add data-source attribute to each row and filter via JS. This dramatically reduces review time for large imports where most transactions are rule-matched.",
       "dependsOn": ["US-003"]
     },
