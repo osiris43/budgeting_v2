@@ -95,3 +95,18 @@
   - `tempfile.NamedTemporaryFile(suffix=".csv", delete=False)` is the right pattern for temp files that need to outlive the with block but get cleaned up in a finally
   - The categorize step calls `categorize_transactions()` directly (not via CLI runner) for cleaner error handling and access to the summary dict
 ---
+
+## 2026-04-13 - US-007
+- What was implemented: Rule management UI — list all rules, edit rule (pattern, detail_pattern, category), and delete rule with confirmation
+- Files changed:
+  - `app/routes.py` — added 4 routes: `GET /rules` (list), `GET /rules/:id/edit` (edit form), `POST /rules/:id/edit` (save), `POST /rules/:id/delete` (delete with confirmation flow)
+  - `app/templates/rules.html` — new template listing all rules in a table with edit links and delete buttons (JS confirm dialog)
+  - `app/templates/rule_edit.html` — new template with edit form for pattern, detail_pattern, category; includes danger zone with two-step delete confirmation via `?delete=1` query param
+  - `app/templates/base.html` — added "Rules" link to nav bar
+  - `tests/test_routes.py` — added 10 new tests across 3 test classes: TestRulesList (list, empty), TestRuleEdit (show form, 404, update, clear detail_pattern, missing pattern 400, invalid category 400), TestRuleDelete (confirmed, unconfirmed redirect, 404)
+  - `prd.json` — marked US-007 as passes: true
+- **Learnings for future iterations:**
+  - The delete confirmation pattern used in this app: unconfirmed POST redirects to `?delete=1` which shows a confirmation form with `confirmed=yes` hidden field; confirmed POST does the actual delete
+  - Rules list page joins on Category to eagerly load category names and sorts by pattern + detail_pattern for consistent ordering
+  - The rules list also has an inline delete with JS `confirm()` dialog as a shortcut, bypassing the two-step flow
+---

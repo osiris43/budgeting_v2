@@ -145,6 +145,168 @@ def _make_import_with_model_txs(db_session, account, category):
     return imp
 
 
+class TestRulesList:
+    """GET /rules lists all merchant rules."""
+
+    def test_lists_rules(self, client, account, categories):
+        cat = categories["Groceries"]
+        db.session.add(MerchantRule(pattern="walmart", category_id=cat.id))
+        db.session.add(MerchantRule(
+            pattern="sams club", category_id=categories["Gas"].id,
+            detail_pattern="UNLEADED|GAS",
+        ))
+        db.session.commit()
+
+        resp = client.get("/rules")
+
+        assert resp.status_code == 200
+        assert b"walmart" in resp.data
+        assert b"sams club" in resp.data
+        assert b"UNLEADED|GAS" in resp.data
+        assert b"Groceries" in resp.data
+        assert b"Gas" in resp.data
+
+    def test_empty_rules(self, client, account, categories):
+        resp = client.get("/rules")
+
+        assert resp.status_code == 200
+        assert b"No rules yet" in resp.data
+
+
+class TestRuleEdit:
+    """GET/POST /rules/:id/edit for editing rules."""
+
+    def test_edit_form_shows_rule(self, client, account, categories):
+        cat = categories["Groceries"]
+        rule = MerchantRule(pattern="walmart", category_id=cat.id)
+        db.session.add(rule)
+        db.session.commit()
+
+        resp = client.get(f"/rules/{rule.id}/edit")
+
+        assert resp.status_code == 200
+        assert b"walmart" in resp.data
+        assert b"Groceries" in resp.data
+
+    def test_edit_form_404_for_missing_rule(self, client, account, categories):
+        resp = client.get("/rules/99999/edit")
+        assert resp.status_code == 404
+
+    def test_edit_updates_rule(self, client, account, categories):
+        cat = categories["Groceries"]
+        rule = MerchantRule(pattern="walmart", category_id=cat.id)
+        db.session.add(rule)
+        db.session.commit()
+
+        gas = categories["Gas"]
+        resp = client.post(
+            f"/rules/{rule.id}/edit",
+            data={
+                "pattern": "walmart supercenter",
+                "detail_pattern": "UNLEADED",
+                "category_id": str(gas.id),
+            },
+        )
+
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/rules")
+
+        db.session.refresh(rule)
+        assert rule.pattern == "walmart supercenter"
+        assert rule.detail_pattern == "UNLEADED"
+        assert rule.category_id == gas.id
+
+    def test_edit_clears_detail_pattern(self, client, account, categories):
+        cat = categories["Gas"]
+        rule = MerchantRule(
+            pattern="sams club", category_id=cat.id, detail_pattern="GAS"
+        )
+        db.session.add(rule)
+        db.session.commit()
+
+        resp = client.post(
+            f"/rules/{rule.id}/edit",
+            data={
+                "pattern": "sams club",
+                "detail_pattern": "",
+                "category_id": str(cat.id),
+            },
+        )
+
+        assert resp.status_code == 302
+        db.session.refresh(rule)
+        assert rule.detail_pattern is None
+
+    def test_edit_missing_pattern_returns_400(self, client, account, categories):
+        cat = categories["Groceries"]
+        rule = MerchantRule(pattern="walmart", category_id=cat.id)
+        db.session.add(rule)
+        db.session.commit()
+
+        resp = client.post(
+            f"/rules/{rule.id}/edit",
+            data={"pattern": "", "category_id": str(cat.id)},
+        )
+        assert resp.status_code == 400
+
+    def test_edit_invalid_category_returns_400(self, client, account, categories):
+        cat = categories["Groceries"]
+        rule = MerchantRule(pattern="walmart", category_id=cat.id)
+        db.session.add(rule)
+        db.session.commit()
+
+        resp = client.post(
+            f"/rules/{rule.id}/edit",
+            data={"pattern": "walmart", "category_id": "99999"},
+        )
+        assert resp.status_code == 400
+
+
+class TestRuleDelete:
+    """POST /rules/:id/delete removes rules."""
+
+    def test_delete_with_confirmation(self, client, account, categories):
+        cat = categories["Groceries"]
+        rule = MerchantRule(pattern="walmart", category_id=cat.id)
+        db.session.add(rule)
+        db.session.commit()
+        rule_id = rule.id
+
+        resp = client.post(
+            f"/rules/{rule_id}/delete",
+            data={"confirmed": "yes"},
+        )
+
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/rules")
+        assert db.session.get(MerchantRule, rule_id) is None
+
+    def test_delete_without_confirmation_redirects_to_edit(
+        self, client, account, categories,
+    ):
+        cat = categories["Groceries"]
+        rule = MerchantRule(pattern="walmart", category_id=cat.id)
+        db.session.add(rule)
+        db.session.commit()
+
+        resp = client.post(
+            f"/rules/{rule.id}/delete",
+            data={},
+        )
+
+        assert resp.status_code == 302
+        assert f"/rules/{rule.id}/edit?delete=1" in resp.headers["Location"]
+        # Rule should still exist
+        assert db.session.get(MerchantRule, rule.id) is not None
+
+    def test_delete_404_for_missing_rule(self, client, account, categories):
+        resp = client.post(
+            "/rules/99999/delete",
+            data={"confirmed": "yes"},
+        )
+        assert resp.status_code == 404
+
+
 class TestConfirmImportRedirect:
     """POST /imports/:id/confirm redirects to promote-rules."""
 

@@ -513,6 +513,75 @@ def create_category_for_import(import_id: int):
     return redirect(f"/imports/{import_id}")
 
 
+@bp.get("/rules")
+def rules_list():
+    rules = (
+        db.session.execute(
+            db.select(MerchantRule)
+            .join(Category, MerchantRule.category_id == Category.id)
+            .order_by(MerchantRule.pattern, MerchantRule.detail_pattern)
+        )
+        .scalars()
+        .all()
+    )
+    return render_template("rules.html", rules=rules)
+
+
+@bp.get("/rules/<int:rule_id>/edit")
+def rule_edit(rule_id: int):
+    rule = db.session.get(MerchantRule, rule_id)
+    if not rule:
+        abort(404)
+
+    categories = db.session.execute(db.select(Category).order_by(Category.name)).scalars().all()
+    return render_template("rule_edit.html", rule=rule, categories=categories)
+
+
+@bp.post("/rules/<int:rule_id>/edit")
+def rule_edit_post(rule_id: int):
+    rule = db.session.get(MerchantRule, rule_id)
+    if not rule:
+        abort(404)
+
+    pattern = (request.form.get("pattern") or "").strip()
+    detail_pattern = (request.form.get("detail_pattern") or "").strip() or None
+    category_id_s = (request.form.get("category_id") or "").strip()
+
+    if not pattern or not category_id_s:
+        abort(400)
+
+    try:
+        category_id = int(category_id_s)
+    except ValueError:
+        abort(400)
+
+    category = db.session.get(Category, category_id)
+    if not category:
+        abort(400)
+
+    rule.pattern = pattern
+    rule.detail_pattern = detail_pattern
+    rule.category_id = category.id
+    db.session.commit()
+
+    return redirect("/rules")
+
+
+@bp.post("/rules/<int:rule_id>/delete")
+def rule_delete(rule_id: int):
+    rule = db.session.get(MerchantRule, rule_id)
+    if not rule:
+        abort(404)
+
+    confirmed = (request.form.get("confirmed") or "").strip().lower() == "yes"
+    if not confirmed:
+        return redirect(f"/rules/{rule_id}/edit?delete=1")
+
+    db.session.delete(rule)
+    db.session.commit()
+    return redirect("/rules")
+
+
 @bp.get("/analysis/spend")
 def analysis_spend():
     granularity = (request.args.get("granularity") or "month").lower()

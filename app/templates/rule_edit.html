@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Rule | Budgeting{% endblock %}
+
+{% block content %}
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div class="text-sm text-slate-400"><a class="hover:text-white" href="/rules">&larr; Back to rules</a></div>
+        <h1 class="mt-1 text-2xl font-semibold tracking-tight">Edit Rule</h1>
+      </div>
+    </div>
+
+    <form method="post" action="/rules/{{ rule.id }}/edit" class="mt-6 max-w-lg grid gap-4">
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400">Pattern</label>
+        <input name="pattern" value="{{ rule.pattern }}" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100" required />
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400">Detail Pattern (optional regex)</label>
+        <input name="detail_pattern" value="{{ rule.detail_pattern or '' }}" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100" />
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400">Category</label>
+        <select name="category_id" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-100" required>
+          {% for c in categories %}
+            <option value="{{ c.id }}" {% if c.id == rule.category_id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex items-center gap-4 pt-2">
+        <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400">Save</button>
+        <a href="/rules" class="text-sm text-slate-400 hover:text-white">Cancel</a>
+      </div>
+    </form>
+
+    {% set confirm_delete = request.args.get('delete') == '1' %}
+    <div class="mt-8 border-t border-slate-800 pt-6">
+      <h2 class="text-sm font-medium text-red-400">Danger zone</h2>
+      {% if confirm_delete %}
+        <p class="mt-2 text-sm text-slate-300">Are you sure you want to delete this rule?</p>
+        <form method="post" action="/rules/{{ rule.id }}/delete" class="mt-2 flex items-center gap-3">
+          <input type="hidden" name="confirmed" value="yes" />
+          <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500">Yes, delete</button>
+          <a href="/rules/{{ rule.id }}/edit" class="text-sm text-slate-400 hover:text-white">Cancel</a>
+        </form>
+      {% else %}
+        <form method="post" action="/rules/{{ rule.id }}/delete" class="mt-2">
+          <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-red-600/20 border border-red-600/40 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-600/30">Delete this rule</button>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

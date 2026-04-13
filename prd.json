@@ -132,7 +132,7 @@
         "pytest passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Currently rules can only be created via CLI or the import detail page. There's no way to fix or remove a bad rule without a flask shell. This is a frequent pain point.",
       "dependsOn": ["US-002"]
     }
