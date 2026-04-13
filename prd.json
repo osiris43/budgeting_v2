@@ -59,7 +59,7 @@
         "pytest passes"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "The set-category route already returns JSON. The frontend change is the main work: wire the select onChange to fetch, update the row DOM on success. Keep the form markup for graceful degradation if JS fails.",
       "dependsOn": ["US-001"]
     },

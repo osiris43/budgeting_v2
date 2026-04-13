@@ -6,6 +6,8 @@
 - Amounts are stored as integer cents (`amount_cents`); positive = expense, negative = credit/refund
 - `MerchantRule` has a composite unique constraint on (pattern, detail_pattern) — same pattern can exist with different detail_patterns
 - `apply_rules` uses two-pass matching: specific rules (with detail_pattern) first via `re.search`, then fallback rules (detail_pattern IS NULL)
+- `base.html` has a `{% block scripts %}` block before `</body>` — use for page-specific JS
+- For XHR vs form POST dual-mode routes: check `request.headers.get("X-Requested-With") == "XMLHttpRequest"` to return JSON, otherwise redirect
 
 ---
 
@@ -40,4 +42,18 @@
   - SQLite batch_alter_table recreates the entire table, so dropping/adding named constraints is tricky — simpler to just add the column and handle constraints in the model
   - `MerchantRule.pattern` was originally unique alone; now composite unique on (pattern, detail_pattern) to allow same merchant with different detail patterns
   - `apply_rules` now does two-pass matching: specific rules first, then fallback — order of insertion doesn't matter
+---
+
+## 2026-04-13 - US-003
+- What was implemented: Batch inline category review on import detail page — category dropdowns now save via fetch/XHR on change without page reload
+- Files changed:
+  - `app/routes.py` — updated `set_import_transaction_category` to return JSON when `X-Requested-With: XMLHttpRequest` header is present, otherwise redirects as before (graceful degradation)
+  - `app/templates/base.html` — added `{% block scripts %}` block before closing `</body>` tag
+  - `app/templates/import_detail.html` — added `data-tx-id`, `data-field="category_name"`, `data-field="category_source"` attributes to table rows/cells; added `data-inline-save` attribute to forms; added inline JS that hides Save buttons and wires select `onChange` to fetch POST, updating category name and source on success with inline error display on failure
+  - `tests/test_routes.py` — new test file with 5 tests: XHR returns JSON, XHR with create_rule, non-XHR redirects, missing category 400, invalid tx 404
+- **Learnings for future iterations:**
+  - `base.html` now has a `{% block scripts %}` block — use it for page-specific JS in any template
+  - The `X-Requested-With: XMLHttpRequest` header convention distinguishes XHR from form POST; route checks this to decide JSON vs redirect response
+  - Form markup is preserved for graceful degradation — JS hides Submit buttons and intercepts select changes, but the form still works without JS
+  - `StatementImport` model requires `account_id`, `filename`, `imported_at`, and `status` fields when creating test fixtures
 ---
