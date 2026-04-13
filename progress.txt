@@ -8,6 +8,8 @@
 - `apply_rules` uses two-pass matching: specific rules (with detail_pattern) first via `re.search`, then fallback rules (detail_pattern IS NULL)
 - `base.html` has a `{% block scripts %}` block before `</body>` — use for page-specific JS
 - For XHR vs form POST dual-mode routes: check `request.headers.get("X-Requested-With") == "XMLHttpRequest"` to return JSON, otherwise redirect
+- CSV import logic is in `_import_csv_file()` helper (returns a summary dict) — both `import-csv` and `process-statement` CLI commands use it
+- To test PDF-related CLI commands, mock `pdfplumber.open` with a fake PDF object that has `.pages` returning fake page objects with `extract_text()`
 
 ---
 
@@ -79,4 +81,17 @@
   - The promotion page only excludes merchants with a fallback rule (detail_pattern IS NULL) — merchants with only specific detail_pattern rules are still promotable as fallback rules
   - Use indexed hidden fields (`merchant_0`, `category_id_0`, `checked_0`) for variable-length form rows — simpler than JSON payloads for server-side form processing
   - `confirm_import` previously redirected to import detail; now redirects to promote-rules which itself redirects to /imports if nothing to promote
+---
+
+## 2026-04-13 - US-006
+- What was implemented: `flask process-statement` orchestration command that accepts a file (PDF or CSV) and account ID, auto-detects format, converts PDF to CSV if needed, imports, and categorizes in one step
+- Files changed:
+  - `app/cli.py` — extracted `_import_csv_file()` helper from `import_csv` command (returns summary dict); added `process-statement` command that orchestrates pdf-to-csv → import → categorize with summary output; added `import tempfile`
+  - `tests/test_process_statement.py` — new test file with 6 tests: CSV import+categorize, summary fields, nonexistent account failure, duplicate skipping, PDF conversion+import, PDF conversion failure
+  - `prd.json` — marked US-006 as passes: true
+- **Learnings for future iterations:**
+  - Extracting the CSV import logic into `_import_csv_file()` returning a dict made it composable — both `import-csv` and `process-statement` use it without duplication
+  - `_pdf_to_csv` is a nested function inside `register_cli`, so it can't be directly mocked — mock `pdfplumber.open` instead for PDF tests
+  - `tempfile.NamedTemporaryFile(suffix=".csv", delete=False)` is the right pattern for temp files that need to outlive the with block but get cleaned up in a finally
+  - The categorize step calls `categorize_transactions()` directly (not via CLI runner) for cleaner error handling and access to the summary dict
 ---

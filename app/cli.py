@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -68,19 +69,13 @@ def register_cli(app: Flask) -> None:
         db.session.commit()
         click.echo(f"Created account id={acct.id}")
 
-    @app.cli.command("import-csv")
-    @click.option("--account-id", type=int, required=True)
-    @click.option("--csv-path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
-    def import_csv(account_id: int, csv_path: Path) -> None:
-        """Import a CSV using a very simple generic column mapping.
+    def _import_csv_file(account_id: int, csv_path: Path) -> dict:
+        """Import a CSV file and return a summary dict.
 
-        This is a placeholder importer until we add institution-specific adapters.
-        Required columns (case-insensitive):
-        - date (or posted date)
-        - description
-        - amount OR debit+credit
+        Returns dict with keys: imported, skipped, skipped_duplicate,
+        skipped_missing_date, skipped_missing_desc, skipped_missing_amount.
+        Raises click.ClickException on errors.
         """
-
         acct = db.session.get(Account, account_id)
         if not acct:
             raise click.ClickException(f"Account {account_id} not found")
@@ -239,21 +234,45 @@ def register_cli(app: Flask) -> None:
                 imported += 1
 
         db.session.commit()
-        click.echo(
-            " ".join(
-                [
-                    f"Imported {imported} transactions; skipped {skipped}",
-                    f"(duplicates={skipped_duplicate}",
-                    f"missing_date={skipped_missing_date}",
-                    f"missing_desc={skipped_missing_desc}",
-                    f"missing_amount={skipped_missing_amount})",
-                ]
-            )
-        )
+
         if sample_duplicates:
             click.echo("Sample duplicates:")
             for s in sample_duplicates:
                 click.echo(f"- {s}")
+
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "skipped_duplicate": skipped_duplicate,
+            "skipped_missing_date": skipped_missing_date,
+            "skipped_missing_desc": skipped_missing_desc,
+            "skipped_missing_amount": skipped_missing_amount,
+        }
+
+    @app.cli.command("import-csv")
+    @click.option("--account-id", type=int, required=True)
+    @click.option("--csv-path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+    def import_csv(account_id: int, csv_path: Path) -> None:
+        """Import a CSV using a very simple generic column mapping.
+
+        This is a placeholder importer until we add institution-specific adapters.
+        Required columns (case-insensitive):
+        - date (or posted date)
+        - description
+        - amount OR debit+credit
+        """
+        summary = _import_csv_file(account_id, csv_path)
+        click.echo(
+            " ".join(
+                [
+                    f"Imported {summary['imported']} transactions; skipped {summary['skipped']}",
+                    f"(duplicates={summary['skipped_duplicate']}",
+                    f"missing_date={summary['skipped_missing_date']}",
+                    f"missing_desc={summary['skipped_missing_desc']}",
+                    f"missing_amount={summary['skipped_missing_amount']})",
+                ]
+            )
+        )
 
     @app.cli.command("categorize")
     @click.option("--account-id", type=int, required=False)
@@ -596,6 +615,67 @@ def register_cli(app: Flask) -> None:
     @click.option("--out-csv-path", type=click.Path(dir_okay=False, path_type=Path), required=True)
     def sams_pdf_to_csv(pdf_path: Path, out_csv_path: Path) -> None:
         _pdf_to_csv(pdf_path=pdf_path, out_csv_path=out_csv_path, fmt="sams")
+
+    @app.cli.command("process-statement")
+    @click.option("--account-id", type=int, required=True)
+    @click.option("--file", "file_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+    def process_statement(account_id: int, file_path: Path) -> None:
+        """Process a statement file end-to-end: convert (if PDF), import, and categorize.
+
+        Auto-detects PDF vs CSV by file extension. For PDFs, converts to a
+        temporary CSV first. Then imports the CSV and runs categorization.
+        """
+        csv_path = file_path
+        tmp_csv = None
+
+        # Step 1: If PDF, convert to CSV first
+        if file_path.suffix.lower() == ".pdf":
+            click.echo(f"[1/3] Converting PDF to CSV: {file_path.name}")
+            tmp_csv = tempfile.NamedTemporaryFile(
+                suffix=".csv", delete=False, mode="w"
+            )
+            tmp_csv.close()
+            csv_path = Path(tmp_csv.name)
+            try:
+                _pdf_to_csv(pdf_path=file_path, out_csv_path=csv_path, fmt="auto")
+            except Exception:
+                csv_path.unlink(missing_ok=True)
+                raise
+        else:
+            click.echo(f"[1/3] Skipping PDF conversion (CSV detected): {file_path.name}")
+
+        # Step 2: Import the CSV
+        try:
+            click.echo(f"[2/3] Importing CSV: {csv_path.name}")
+            import_summary = _import_csv_file(account_id, csv_path)
+        finally:
+            # Clean up temp CSV if we created one
+            if tmp_csv is not None:
+                csv_path.unlink(missing_ok=True)
+
+        click.echo(
+            f"  Imported {import_summary['imported']}, "
+            f"skipped {import_summary['skipped']}"
+        )
+
+        # Step 3: Categorize
+        click.echo("[3/3] Categorizing transactions...")
+        cat_summary = categorize_transactions(
+            account_id=account_id,
+            limit=500,
+            dry_run=False,
+            create_rules=False,
+            auto_create_categories=False,
+        )
+
+        # Print final summary
+        click.echo("")
+        click.echo("=== Summary ===")
+        click.echo(f"Transactions imported: {import_summary['imported']}")
+        click.echo(f"Transactions skipped:  {import_summary['skipped']}")
+        click.echo(f"Categorized by rule:   {cat_summary['ruled']}")
+        click.echo(f"Categorized by model:  {cat_summary['modeled']}")
+        click.echo(f"Uncategorized:         {cat_summary['skipped']}")
 
 
 def _parse_amount_to_cents(amount: Optional[str], debit: Optional[str], credit: Optional[str]) -> int:

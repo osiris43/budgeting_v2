@@ -115,7 +115,7 @@
         "pytest passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "This eliminates steps 2-4 of the current monthly workflow. PDF temp file should be written to a system temp dir and cleaned up after import. The command should be composable — individual sub-commands (pdf-to-csv, import-csv, categorize) remain usable standalone.",
       "dependsOn": ["US-001"]
     },

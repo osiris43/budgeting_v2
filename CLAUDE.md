@@ -33,6 +33,9 @@ flask import-csv --account-id <id> --csv-path <path>
 # Categorize uncategorized transactions
 flask categorize [--limit 500] [--dry-run] [--create-rules]
 
+# Process a statement end-to-end (PDF or CSV → import → categorize)
+flask process-statement --account-id <id> --file <path>
+
 # Convert PDF statement to CSV
 flask pdf-to-csv --pdf-path <path> --out-csv-path <path> --format auto
 ```
