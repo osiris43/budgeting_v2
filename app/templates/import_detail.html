@@ -47,12 +47,12 @@
               </thead>
               <tbody class="divide-y divide-slate-800">
                 {% for t in txs %}
-                  <tr class="hover:bg-slate-950/40">
+                  <tr class="hover:bg-slate-950/40" data-tx-id="{{ t.id }}">
                     <td class="px-4 py-3 text-slate-300">{{ t.posted_date }}</td>
                     <td class="px-4 py-3 text-slate-300">{{ t.merchant or "" }}</td>
                     <td class="px-4 py-3 text-slate-300">{{ t.bank_category_raw or "" }}</td>
-                    <td class="px-4 py-3 text-slate-200">{{ t.category.name if t.category else "" }}</td>
-                    <td class="px-4 py-3 text-slate-300">{{ t.category_source }}</td>
+                    <td class="px-4 py-3 text-slate-200" data-field="category_name">{{ t.category.name if t.category else "" }}</td>
+                    <td class="px-4 py-3 text-slate-300" data-field="category_source">{{ t.category_source }}</td>
                     {% set amt = (t.amount_cents or 0) / 100 %}
                     <td class="px-4 py-3 text-right font-medium {% if t.amount_cents > 0 %}text-slate-100{% else %}text-emerald-300{% endif %}">
                       {% if t.amount_cents > 0 %}
@@ -63,7 +63,7 @@
                     </td>
                     <td class="px-4 py-3 text-slate-200">{{ t.description_clean or t.description_raw }}</td>
                     <td class="px-4 py-2">
-                      <form class="flex items-center gap-2" method="post" action="/imports/{{ imp.id }}/transactions/{{ t.id }}/set-category">
+                      <form class="flex items-center gap-2" method="post" action="/imports/{{ imp.id }}/transactions/{{ t.id }}/set-category" data-inline-save>
                         <select name="category_id" class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-sm text-slate-100">
                           {% for c in categories %}
                             {% set label = (c.parent.name ~ ": " ~ c.name) if c.parent else c.name %}
@@ -74,7 +74,8 @@
                           <input type="checkbox" name="create_rule" class="h-4 w-4 rounded border-slate-700 bg-slate-950/40" />
                           rule
                         </label>
-                        <button type="submit" class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-sm text-slate-100 hover:border-slate-500">Save</button>
+                        <button type="submit" class="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-sm text-slate-100 hover:border-slate-500 js-save-btn">Save</button>
+                        <span class="hidden text-xs text-rose-400" data-field="error"></span>
                       </form>
                     </td>
                   </tr>
@@ -85,4 +86,54 @@
       </div>
     </div>
   </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // Hide Save buttons when JS is available — saves happen on select change
+  document.querySelectorAll('.js-save-btn').forEach(function (btn) {
+    btn.style.display = 'none';
+  });
+
+  document.querySelectorAll('form[data-inline-save]').forEach(function (form) {
+    var select = form.querySelector('select[name="category_id"]');
+    var ruleCheckbox = form.querySelector('input[name="create_rule"]');
+
+    function saveCategory() {
+      var row = form.closest('tr');
+      var errorEl = form.querySelector('[data-field="error"]');
+      errorEl.classList.add('hidden');
+      errorEl.textContent = '';
+
+      var body = new FormData();
+      body.append('category_id', select.value);
+      if (ruleCheckbox && ruleCheckbox.checked) {
+        body.append('create_rule', 'on');
+      }
+
+      fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: body,
+      })
+        .then(function (resp) {
+          if (!resp.ok) throw new Error('Save failed (HTTP ' + resp.status + ')');
+          return resp.json();
+        })
+        .then(function (data) {
+          if (!data.ok) throw new Error('Save failed');
+          row.querySelector('[data-field="category_name"]').textContent = data.category_name || '';
+          row.querySelector('[data-field="category_source"]').textContent = data.category_source || '';
+        })
+        .catch(function (err) {
+          errorEl.textContent = err.message || 'Save failed';
+          errorEl.classList.remove('hidden');
+        });
+    }
+
+    select.addEventListener('change', saveCategory);
+  });
+})();
+</script>
 {% endblock %}

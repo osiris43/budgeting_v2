@@ -387,6 +387,16 @@ def set_import_transaction_category(import_id: int, tx_id: int):
             db.session.add(MerchantRule(pattern=tx.merchant, category_id=category.id))
 
     db.session.commit()
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return {
+            "ok": True,
+            "tx_id": tx.id,
+            "category_id": tx.category_id,
+            "category_name": category.name,
+            "category_source": tx.category_source,
+        }
+
     return redirect(f"/imports/{import_id}")
 
 
