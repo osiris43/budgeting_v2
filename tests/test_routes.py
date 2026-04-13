@@ -1,4 +1,4 @@
-"""Tests for route handlers — focused on inline category save (US-003)."""
+"""Tests for route handlers."""
 from datetime import date, datetime
 
 from app import db
@@ -113,3 +113,196 @@ class TestSetImportTransactionCategoryJSON:
         )
 
         assert resp.status_code == 404
+
+
+def _make_import_with_model_txs(db_session, account, category):
+    """Helper: create import with model-categorized transactions."""
+    imp = StatementImport(
+        account_id=account.id,
+        filename="test.csv",
+        imported_at=datetime.utcnow(),
+        status="pending",
+    )
+    db_session.add(imp)
+    db_session.flush()
+
+    for i, merchant in enumerate(["walmart", "target", "walmart"]):
+        tx = Transaction(
+            account_id=account.id,
+            statement_import_id=imp.id,
+            posted_date=date(2026, 3, 15),
+            amount_cents=1000 + i,
+            description_raw=f"{merchant.upper()} #{i}",
+            description_clean=merchant,
+            merchant=merchant,
+            fingerprint=f"fp_{i}",
+            category_id=category.id,
+            category_source="model",
+        )
+        db_session.add(tx)
+
+    db_session.commit()
+    return imp
+
+
+class TestConfirmImportRedirect:
+    """POST /imports/:id/confirm redirects to promote-rules."""
+
+    def test_confirm_redirects_to_promote_rules(self, client, account, categories):
+        imp, _ = _make_import_with_tx(db.session, account)
+
+        resp = client.post(f"/imports/{imp.id}/confirm")
+
+        assert resp.status_code == 302
+        assert f"/imports/{imp.id}/promote-rules" in resp.headers["Location"]
+
+
+class TestPromoteRulesGet:
+    """GET /imports/:id/promote-rules page."""
+
+    def test_shows_model_categorized_merchants(self, client, account, categories):
+        cat = categories["Groceries"]
+        imp = _make_import_with_model_txs(db.session, account, cat)
+
+        resp = client.get(f"/imports/{imp.id}/promote-rules")
+
+        assert resp.status_code == 200
+        assert b"walmart" in resp.data
+        assert b"target" in resp.data
+
+    def test_excludes_merchants_with_existing_rules(self, client, account, categories):
+        cat = categories["Groceries"]
+        imp = _make_import_with_model_txs(db.session, account, cat)
+
+        # Create a rule for walmart (no detail_pattern)
+        db.session.add(MerchantRule(pattern="walmart", category_id=cat.id))
+        db.session.commit()
+
+        resp = client.get(f"/imports/{imp.id}/promote-rules")
+
+        assert resp.status_code == 200
+        assert b"walmart" not in resp.data
+        assert b"target" in resp.data
+
+    def test_redirects_to_imports_when_no_promotable(self, client, account, categories):
+        """If no model-categorized merchants, skip to /imports."""
+        imp, _ = _make_import_with_tx(db.session, account)
+        # tx has category_source='unknown', not 'model'
+
+        resp = client.get(f"/imports/{imp.id}/promote-rules")
+
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/imports")
+
+    def test_excludes_merchants_with_detail_pattern_rules(
+        self, client, account, categories
+    ):
+        """A merchant with only a detail_pattern rule should still be promotable."""
+        cat = categories["Groceries"]
+        gas = categories["Gas"]
+        imp = _make_import_with_model_txs(db.session, account, cat)
+
+        # Create a detail_pattern rule for walmart — should NOT exclude it
+        db.session.add(MerchantRule(
+            pattern="walmart", category_id=gas.id, detail_pattern="GAS"
+        ))
+        db.session.commit()
+
+        resp = client.get(f"/imports/{imp.id}/promote-rules")
+
+        assert resp.status_code == 200
+        assert b"walmart" in resp.data
+
+
+class TestPromoteRulesPost:
+    """POST /imports/:id/promote-rules creates rules."""
+
+    def test_creates_rules_for_checked_merchants(self, client, account, categories):
+        cat = categories["Groceries"]
+        imp = _make_import_with_model_txs(db.session, account, cat)
+
+        resp = client.post(
+            f"/imports/{imp.id}/promote-rules",
+            data={
+                "merchant_0": "walmart",
+                "category_id_0": str(cat.id),
+                "checked_0": "on",
+                "merchant_1": "target",
+                "category_id_1": str(cat.id),
+                "checked_1": "on",
+            },
+        )
+
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/imports")
+
+        rules = db.session.execute(db.select(MerchantRule)).scalars().all()
+        patterns = {r.pattern for r in rules}
+        assert "walmart" in patterns
+        assert "target" in patterns
+
+    def test_skips_unchecked_merchants(self, client, account, categories):
+        cat = categories["Groceries"]
+        imp = _make_import_with_model_txs(db.session, account, cat)
+
+        resp = client.post(
+            f"/imports/{imp.id}/promote-rules",
+            data={
+                "merchant_0": "walmart",
+                "category_id_0": str(cat.id),
+                # checked_0 not present — unchecked
+                "merchant_1": "target",
+                "category_id_1": str(cat.id),
+                "checked_1": "on",
+            },
+        )
+
+        assert resp.status_code == 302
+        rules = db.session.execute(db.select(MerchantRule)).scalars().all()
+        patterns = {r.pattern for r in rules}
+        assert "walmart" not in patterns
+        assert "target" in patterns
+
+    def test_creates_rule_with_detail_pattern(self, client, account, categories):
+        cat = categories["Gas"]
+        imp = _make_import_with_model_txs(db.session, account, cat)
+
+        resp = client.post(
+            f"/imports/{imp.id}/promote-rules",
+            data={
+                "merchant_0": "walmart",
+                "category_id_0": str(cat.id),
+                "checked_0": "on",
+                "detail_pattern_0": "UNLEADED|GAS",
+            },
+        )
+
+        assert resp.status_code == 302
+        rule = db.session.execute(
+            db.select(MerchantRule).where(MerchantRule.pattern == "walmart")
+        ).scalar_one()
+        assert rule.detail_pattern == "UNLEADED|GAS"
+        assert rule.category_id == cat.id
+
+    def test_does_not_create_duplicate_rules(self, client, account, categories):
+        cat = categories["Groceries"]
+        imp = _make_import_with_model_txs(db.session, account, cat)
+
+        # Pre-existing rule
+        db.session.add(MerchantRule(pattern="walmart", category_id=cat.id))
+        db.session.commit()
+
+        resp = client.post(
+            f"/imports/{imp.id}/promote-rules",
+            data={
+                "merchant_0": "walmart",
+                "category_id_0": str(cat.id),
+                "checked_0": "on",
+            },
+        )
+
+        assert resp.status_code == 302
+        rules = db.session.execute(
+            db.select(MerchantRule).where(MerchantRule.pattern == "walmart")
+        ).scalars().all()
+        assert len(rules) == 1

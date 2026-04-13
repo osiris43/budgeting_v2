@@ -67,3 +67,16 @@
   - URL hash is the simplest way to persist client-side filter state across page refresh without touching the backend
   - When inline save changes a row's category_source, update the `data-source` attribute too so JS filters remain correct without re-rendering
 ---
+
+## 2026-04-13 - US-005
+- What was implemented: Rule promotion page after import confirmation — redirects to a page listing model-categorized merchants with checkboxes to create rules
+- Files changed:
+  - `app/routes.py` — modified `confirm_import` to redirect to `/imports/:id/promote-rules`; added `promote_rules` (GET) and `promote_rules_post` (POST) routes
+  - `app/templates/promote_rules.html` — new template with table of promotable merchants, checkboxes (default checked), detail_pattern input fields, and skip link
+  - `tests/test_routes.py` — added 9 new tests: confirm redirect, GET shows model merchants, excludes existing rules, redirects when no promotable, allows merchants with only detail_pattern rules, POST creates rules, skips unchecked, creates with detail_pattern, no duplicates
+  - `prd.json` — marked US-005 as passes: true
+- **Learnings for future iterations:**
+  - The promotion page only excludes merchants with a fallback rule (detail_pattern IS NULL) — merchants with only specific detail_pattern rules are still promotable as fallback rules
+  - Use indexed hidden fields (`merchant_0`, `category_id_0`, `checked_0`) for variable-length form rows — simpler than JSON payloads for server-side form processing
+  - `confirm_import` previously redirected to import detail; now redirects to promote-rules which itself redirects to /imports if nothing to promote
+---

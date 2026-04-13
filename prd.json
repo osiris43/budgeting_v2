@@ -95,7 +95,7 @@
         "pytest passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "This is the key habit-building loop: each confirmed import makes future imports faster. The detail_pattern input lets Brett add specificity (e.g. for Sam's Club transactions) at promotion time.",
       "dependsOn": ["US-002", "US-003"]
     },

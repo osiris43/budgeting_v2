@@ -355,7 +355,99 @@ def confirm_import(import_id: int):
     imp.status = "confirmed"
     imp.confirmed_at = datetime.utcnow()
     db.session.commit()
-    return redirect(f"/imports/{import_id}")
+    return redirect(f"/imports/{import_id}/promote-rules")
+
+
+@bp.get("/imports/<int:import_id>/promote-rules")
+def promote_rules(import_id: int):
+    imp = db.session.get(StatementImport, import_id)
+    if not imp:
+        abort(404)
+
+    # Find unique merchant+category pairs from model-categorized transactions
+    model_txs = (
+        db.session.execute(
+            db.select(
+                Transaction.merchant,
+                Transaction.category_id,
+                Category.name.label("category_name"),
+                db.func.count(Transaction.id).label("tx_count"),
+            )
+            .join(Category, Transaction.category_id == Category.id)
+            .where(
+                Transaction.statement_import_id == import_id,
+                Transaction.category_source == "model",
+                Transaction.merchant.isnot(None),
+                Transaction.merchant != "",
+            )
+            .group_by(Transaction.merchant, Transaction.category_id, Category.name)
+            .order_by(Transaction.merchant)
+        )
+        .all()
+    )
+
+    # Exclude merchants that already have a matching rule (with no detail_pattern)
+    promotable = []
+    for row in model_txs:
+        existing = db.session.execute(
+            db.select(MerchantRule).where(
+                MerchantRule.pattern == row.merchant,
+                MerchantRule.detail_pattern.is_(None),
+            )
+        ).scalar_one_or_none()
+        if not existing:
+            promotable.append(row)
+
+    if not promotable:
+        return redirect("/imports")
+
+    return render_template(
+        "promote_rules.html",
+        imp=imp,
+        promotable=promotable,
+    )
+
+
+@bp.post("/imports/<int:import_id>/promote-rules")
+def promote_rules_post(import_id: int):
+    imp = db.session.get(StatementImport, import_id)
+    if not imp:
+        abort(404)
+
+    # Process each checked merchant row
+    idx = 0
+    while True:
+        merchant = request.form.get(f"merchant_{idx}")
+        if merchant is None:
+            break
+
+        checked = request.form.get(f"checked_{idx}") == "on"
+        if checked:
+            category_id_s = request.form.get(f"category_id_{idx}", "")
+            detail_pattern = (request.form.get(f"detail_pattern_{idx}") or "").strip() or None
+
+            if category_id_s:
+                category_id = int(category_id_s)
+                # Avoid duplicates
+                existing = db.session.execute(
+                    db.select(MerchantRule).where(
+                        MerchantRule.pattern == merchant,
+                        MerchantRule.detail_pattern == detail_pattern
+                        if detail_pattern
+                        else MerchantRule.detail_pattern.is_(None),
+                    )
+                ).scalar_one_or_none()
+                if not existing:
+                    db.session.add(MerchantRule(
+                        pattern=merchant,
+                        category_id=category_id,
+                        detail_pattern=detail_pattern,
+                    ))
+
+        idx += 1
+
+    db.session.commit()
+    return redirect("/imports")
 
 
 @bp.post("/imports/<int:import_id>/transactions/<int:tx_id>/set-category")
