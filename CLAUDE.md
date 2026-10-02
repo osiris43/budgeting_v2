@@ -12,7 +12,7 @@ flask db upgrade
 flask init-default-categories
 ```
 
-Requires a running [Ollama](https://ollama.ai) instance for AI categorization (`ollama pull llama3.2:3b`).
+Requires a running [Ollama](https://ollama.ai) instance for AI categorization (`ollama pull llama3.2:3b`), but app startup and migrations do not require Ollama unless `CHECK_OLLAMA_ON_STARTUP=1`.
 
 ## Common Commands
 
@@ -71,5 +71,6 @@ This is a personal budgeting app: **import statements → normalize/deduplicate 
 |---|---|
 | `DATABASE_URL` | SQLite path (default: `sqlite:///budget.db`) |
 | `OLLAMA_BASE_URL` | Ollama API URL |
-| `OLLAMA_MODEL` | Model name (e.g., `llama3.2:3b`) |
+| `OLLAMA_MODEL` | Model name for categorization commands (e.g., `llama3.2:3b`) |
+| `CHECK_OLLAMA_ON_STARTUP` | Optional startup validation; set to `1` to require Ollama at app boot |
 | `SECRET_KEY` | Flask session key |

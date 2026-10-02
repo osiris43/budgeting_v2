@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from app import db
 from app.models import (
-    Account, Category, MerchantRule, StatementImport, Transaction,
+    MerchantRule, StatementImport, Transaction,
 )
 
 

@@ -1,9 +1,8 @@
 import csv
 import tempfile
-from datetime import date
 from pathlib import Path
 
-from app.models import Account, StatementImport, Transaction
+from app.models import Transaction
 
 
 def _write_csv(rows, fieldnames=None):

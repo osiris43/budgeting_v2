@@ -26,10 +26,11 @@ Key variables:
 - `DATABASE_URL`: SQLAlchemy database URL
   - Recommended local default is SQLite in `instance/` (the app will default to `instance/budget.db` if `DATABASE_URL` is not set)
 - `OLLAMA_BASE_URL`: where Ollama is running (default `http://localhost:11434`)
-- `OLLAMA_MODEL`: required (e.g. `llama3.2:3b`)
+- `OLLAMA_MODEL`: required for categorization commands (e.g. `llama3.2:3b`)
+- `CHECK_OLLAMA_ON_STARTUP`: optional; set to `1` to fail app startup unless Ollama is reachable
 - `FLASK_APP`: set to `run.py` (enables `flask ...` commands)
 
-Ollama must be running and the configured model must already be pulled (example):
+Ollama must be running and the configured model must already be pulled before running categorization commands:
 
 ```bash
 ollama pull llama3.2:3b

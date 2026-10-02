@@ -1,7 +1,7 @@
 """add merchant_rule detail_pattern
 
 Revision ID: d4e5f6a7b8c9
-Revises: 8c0e6d0e1a21
+Revises: c3d1f2a9b0aa
 Create Date: 2026-04-11 12:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'd4e5f6a7b8c9'
-down_revision = '8c0e6d0e1a21'
+down_revision = 'c3d1f2a9b0aa'
 branch_labels = None
 depends_on = None
 

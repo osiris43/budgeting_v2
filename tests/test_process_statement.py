@@ -130,14 +130,6 @@ class TestProcessStatementPDF:
         tmp_pdf.close()
         pdf_path = Path(tmp_pdf.name)
 
-        csv_rows = [
-            {"date": "2024-01-15", "description": "WALMART", "amount": "42.50"},
-        ]
-
-        def mock_pdfplumber_open(path):
-            """Mock that writes a CSV to the out_csv_path via _write_pdf_csv."""
-            raise AssertionError("Should not be called when _pdf_to_csv is patched")
-
         # We need to patch the _pdf_to_csv nested function. Since it's nested
         # inside register_cli, we patch pdfplumber.open and write the CSV ourselves
         # using a side_effect on the actual pdf-to-csv logic.
@@ -149,7 +141,6 @@ class TestProcessStatementPDF:
         # temporarily replacing pdfplumber.open.
 
         import pdfplumber
-        original_open = pdfplumber.open
 
         class FakePage:
             def extract_text(self):

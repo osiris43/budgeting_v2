@@ -11,13 +11,6 @@ db = SQLAlchemy()
 migrate = Migrate()
 
 
-def _require_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
-
-
 def _check_ollama(ollama_base_url: str, model: str) -> None:
     try:
         resp = requests.get(f"{ollama_base_url.rstrip('/')}/api/tags", timeout=3)
@@ -53,9 +46,12 @@ def create_app() -> Flask:
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    ollama_model = _require_env("OLLAMA_MODEL")
-
-    _check_ollama(ollama_base_url=ollama_base_url, model=ollama_model)
+    ollama_model = os.getenv("OLLAMA_MODEL")
+    check_ollama = os.getenv("CHECK_OLLAMA_ON_STARTUP", "").lower() in ("1", "true", "yes")
+    if check_ollama:
+        if not ollama_model:
+            raise RuntimeError("Missing required environment variable: OLLAMA_MODEL")
+        _check_ollama(ollama_base_url=ollama_base_url, model=ollama_model)
 
     db.init_app(app)
     migrate.init_app(app, db)
