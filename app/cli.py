@@ -13,8 +13,9 @@ import click
 from flask import Flask
 
 from . import db
-from .models import Account, Category, StatementImport, Transaction
+from .models import Account, Category, StatementImport, StatementSourceConfig, Transaction
 from .services.categorization import categorize_transactions
+from .services import onepassword
 
 
 def register_cli(app: Flask) -> None:
@@ -68,6 +69,83 @@ def register_cli(app: Flask) -> None:
         db.session.add(acct)
         db.session.commit()
         click.echo(f"Created account id={acct.id}")
+
+    @app.cli.command("configure-statement-source")
+    @click.option("--account-id", type=int, required=True)
+    @click.option("--provider", type=click.Choice(["capital_one"]), required=True)
+    @click.option("--username-ref", required=True)
+    @click.option("--password-ref", required=True)
+    @click.option("--statement-close-day", type=click.IntRange(1, 31), required=True)
+    @click.option("--download-dir", default="data/statements", show_default=True)
+    @click.option("--browser-state-path", default="", show_default=False)
+    def configure_statement_source(
+        account_id: int,
+        provider: str,
+        username_ref: str,
+        password_ref: str,
+        statement_close_day: int,
+        download_dir: str,
+        browser_state_path: str,
+    ) -> None:
+        """Configure where statements come from without storing raw credentials."""
+        acct = db.session.get(Account, account_id)
+        if not acct:
+            raise click.ClickException(f"Account {account_id} not found")
+
+        try:
+            username_ref = onepassword.validate_op_ref(username_ref)
+            password_ref = onepassword.validate_op_ref(password_ref)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        config = db.session.execute(
+            db.select(StatementSourceConfig).where(StatementSourceConfig.account_id == acct.id)
+        ).scalar_one_or_none()
+        if config is None:
+            config = StatementSourceConfig(account_id=acct.id)
+            db.session.add(config)
+
+        config.provider = provider
+        config.username_ref = username_ref
+        config.password_ref = password_ref
+        config.statement_close_day = statement_close_day
+        config.download_dir = download_dir
+        config.browser_state_path = browser_state_path.strip() or None
+
+        db.session.commit()
+        click.echo(f"Configured {provider} statement source for account id={acct.id}")
+        click.echo("Stored 1Password references only; no raw credential values were saved.")
+
+    @app.cli.command("check-statement-source")
+    @click.option("--account-id", type=int, required=True)
+    @click.option("--resolve-secrets", is_flag=True, default=False)
+    def check_statement_source(account_id: int, resolve_secrets: bool) -> None:
+        """Check statement source configuration and optionally verify 1Password refs."""
+        acct = db.session.get(Account, account_id)
+        if not acct:
+            raise click.ClickException(f"Account {account_id} not found")
+
+        config = db.session.execute(
+            db.select(StatementSourceConfig).where(StatementSourceConfig.account_id == acct.id)
+        ).scalar_one_or_none()
+        if not config:
+            raise click.ClickException(f"Account {account_id} has no statement source configured")
+
+        click.echo(f"account_id={acct.id}")
+        click.echo(f"provider={config.provider}")
+        click.echo(f"statement_close_day={config.statement_close_day}")
+        click.echo(f"download_dir={config.download_dir}")
+        click.echo(f"browser_state_path={config.browser_state_path or ''}")
+        click.echo("username_ref=configured")
+        click.echo("password_ref=configured")
+
+        if resolve_secrets:
+            try:
+                onepassword.read_secret(config.username_ref)
+                onepassword.read_secret(config.password_ref)
+            except onepassword.OnePasswordError as exc:
+                raise click.ClickException(str(exc)) from exc
+            click.echo("1password_refs=ok")
 
     def _import_csv_file(account_id: int, csv_path: Path) -> dict:
         """Import a CSV file and return a summary dict.

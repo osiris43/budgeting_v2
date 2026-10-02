@@ -30,6 +30,12 @@ ruff check .
 # Import a CSV statement
 flask import-csv --account-id <id> --csv-path <path>
 
+# Configure statement source credentials as 1Password refs
+flask configure-statement-source --account-id <id> --provider capital_one \
+  --username-ref "op://Private/Capital One/username" \
+  --password-ref "op://Private/Capital One/password" \
+  --statement-close-day <1-31>
+
 # Categorize uncategorized transactions
 flask categorize [--limit 500] [--dry-run] [--create-rules]
 
@@ -60,6 +66,7 @@ This is a personal budgeting app: **import statements → normalize/deduplicate 
 - `Transaction.fingerprint` is a SHA1 hash used for deduplication on import.
 - `category_source` tracks how a transaction was categorized: `rule`, `model`, `manual`, or `unknown`.
 - `Category` is self-referential (`parent_id`) for hierarchical budgets.
+- `StatementSourceConfig` stores statement automation metadata and 1Password refs only; raw credentials should never be stored in the database or `.env`.
 
 ### PDF parsing
 

@@ -14,6 +14,20 @@
       </div>
     </div>
 
+    <div class="mt-6 rounded-xl border border-slate-800 bg-slate-950/30 p-4">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div class="text-xs uppercase tracking-wide text-slate-400">Statement source</div>
+          {% if account.statement_source_config %}
+            <div class="mt-1 text-sm text-slate-200">{{ account.statement_source_config.provider }}</div>
+            <div class="mt-1 text-xs text-slate-400">Close day {{ account.statement_source_config.statement_close_day }} · {{ account.statement_source_config.download_dir }}</div>
+          {% else %}
+            <div class="mt-1 text-sm text-slate-300">Not configured</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
     <div class="mt-6 grid gap-4 sm:grid-cols-3">
       <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
         <div class="text-xs uppercase tracking-wide text-slate-400">Total spend</div>

@@ -13,6 +13,27 @@ class Account(db.Model):
 
     transactions = db.relationship("Transaction", back_populates="account", lazy=True)
     imports = db.relationship("StatementImport", back_populates="account", lazy=True)
+    statement_source_config = db.relationship(
+        "StatementSourceConfig",
+        back_populates="account",
+        uselist=False,
+        lazy=True,
+    )
+
+
+class StatementSourceConfig(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("account.id"), nullable=False, unique=True)
+    provider = db.Column(db.String(50), nullable=False)
+    username_ref = db.Column(db.String(500), nullable=False)
+    password_ref = db.Column(db.String(500), nullable=False)
+    statement_close_day = db.Column(db.Integer, nullable=False)
+    download_dir = db.Column(db.String(500), nullable=False)
+    browser_state_path = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    account = db.relationship("Account", back_populates="statement_source_config")
 
 
 class Category(db.Model):

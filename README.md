@@ -108,6 +108,22 @@ flask init-default-categories
 flask create-account --name "Chase Checking" --institution "Chase" --type "checking"
 ```
 
+### Statement source credentials
+
+Statement automation stores 1Password references only, not raw credential values:
+
+```bash
+flask configure-statement-source \
+  --account-id 1 \
+  --provider capital_one \
+  --username-ref "op://Private/Capital One/username" \
+  --password-ref "op://Private/Capital One/password" \
+  --statement-close-day 12
+
+flask check-statement-source --account-id 1
+flask check-statement-source --account-id 1 --resolve-secrets
+```
+
 ### Import CSV
 
 ```bash
